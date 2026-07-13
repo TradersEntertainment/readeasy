@@ -1,28 +1,51 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Doc } from "../App";
+import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
+import { THEMES } from "../lib/themes";
+import { loadSettings, savePos, saveSettings, type Align } from "../lib/storage";
 
 interface Props {
   doc: Doc;
+  initialLine: number;
+  theme: string;
+  onThemeChange: (id: string) => void;
   onExit: () => void;
 }
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
+const ALIGNMENTS: { id: Align; name: string }[] = [
+  { id: "left", name: "Sola" },
+  { id: "center", name: "Ortala" },
+  { id: "right", name: "Sağa" },
+  { id: "justify", name: "İki yana" },
+];
 const STYLE_WINDOW = 14; // aktif satırın etrafında stillenecek satır sayısı
+const READING_CPS = 16; // kalan süre tahmini için ortalama karakter/saniye
 
-export default function Reader({ doc, onExit }: Props) {
+type Panel = "none" | "sound" | "theme";
+
+export default function Reader({ doc, initialLine, theme, onThemeChange, onExit }: Props) {
   const { lines } = doc;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const linesRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const centersRef = useRef<number[]>([]);
   const styledRange = useRef<[number, number]>([0, -1]);
-  const activeRef = useRef(0);
+  const activeRef = useRef(initialLine);
+  const initedRef = useRef(false);
 
-  const [active, setActive] = useState(0);
-  const [fontScale, setFontScale] = useState(1);
+  const settings = useRef(loadSettings()).current;
+  const [active, setActive] = useState(initialLine);
+  const [fontScale, setFontScale] = useState(settings.fontScale);
   const [playing, setPlaying] = useState(false);
-  const [speedIdx, setSpeedIdx] = useState(1);
+  const [speedIdx, setSpeedIdx] = useState(settings.speedIdx);
   const [fullscreen, setFullscreen] = useState(false);
+  const [panel, setPanel] = useState<Panel>("none");
+  const panelRef = useRef<Panel>("none");
+  panelRef.current = panel;
+  const [sound, setSound] = useState<AmbienceId | null>(null);
+  const [volume, setVolume] = useState(settings.volume);
+  const [align, setAlign] = useState<Align>(settings.align);
 
   // Her satırın kayış içindeki dikey merkezini ölç (scroll sırasında layout
   // okuması yapmamak için önbelleğe alınır).
@@ -105,6 +128,10 @@ export default function Reader({ doc, onExit }: Props) {
   // Ölçüm: ilk açılışta ve yazı boyutu / pencere boyutu değişince.
   useEffect(() => {
     measure();
+    if (!initedRef.current) {
+      initedRef.current = true;
+      if (initialLine > 0) goTo(initialLine, "auto");
+    }
     update();
     const observer = new ResizeObserver(() => {
       measure();
@@ -113,7 +140,7 @@ export default function Reader({ doc, onExit }: Props) {
     if (linesRef.current) observer.observe(linesRef.current);
     if (scrollerRef.current) observer.observe(scrollerRef.current);
     return () => observer.disconnect();
-  }, [measure, update, fontScale]);
+  }, [measure, update, goTo, initialLine, fontScale]);
 
   // Kaydırma dinleyicisi (kare başına en fazla bir güncelleme).
   useEffect(() => {
@@ -182,7 +209,8 @@ export default function Reader({ doc, onExit }: Props) {
           void toggleFullscreen();
           break;
         case "Escape":
-          if (!document.fullscreenElement) onExit();
+          if (panelRef.current !== "none") setPanel("none");
+          else if (!document.fullscreenElement) onExit();
           break;
       }
     };
@@ -210,6 +238,31 @@ export default function Reader({ doc, onExit }: Props) {
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
+  // Tercihleri ve okuma konumunu kalıcılaştır.
+  useEffect(() => saveSettings({ fontScale }), [fontScale]);
+  useEffect(() => saveSettings({ speedIdx }), [speedIdx]);
+  useEffect(() => saveSettings({ align }), [align]);
+  useEffect(() => savePos(active), [active]);
+
+  // Ses: seviye değişimini motora aktar; okuyucudan çıkınca sesi kapat.
+  useEffect(() => {
+    ambience.setVolume(volume);
+    saveSettings({ volume });
+  }, [volume]);
+  useEffect(() => () => ambience.stop(), []);
+
+  const toggleSound = (id: AmbienceId) => {
+    if (sound === id) {
+      ambience.stop();
+      setSound(null);
+    } else {
+      ambience.setVolume(volume);
+      ambience.play(id);
+      setSound(id);
+      saveSettings({ ambience: id });
+    }
+  };
+
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -219,7 +272,19 @@ export default function Reader({ doc, onExit }: Props) {
     }
   };
 
+  // Kalan okuma süresi tahmini
+  const cumulativeChars = useMemo(() => {
+    const sums = [0];
+    for (const line of lines) sums.push(sums[sums.length - 1] + line.length);
+    return sums;
+  }, [lines]);
+  const remainingMin = Math.ceil(
+    (cumulativeChars[lines.length] - cumulativeChars[active]) /
+      (READING_CPS * SPEEDS[speedIdx] * 60),
+  );
+
   const progress = lines.length > 1 ? active / (lines.length - 1) : 1;
+  const soundMeta = AMBIENCES.find((a) => a.id === sound);
 
   return (
     <div className="reader">
@@ -231,15 +296,24 @@ export default function Reader({ doc, onExit }: Props) {
         </button>
         <span className="reader__title">{doc.title}</span>
         <span className="reader__counter">
+          {remainingMin > 0 && `≈${remainingMin} dk · `}
           {active + 1} / {lines.length}
         </span>
       </header>
 
-      <div className="reader__scroller" ref={scrollerRef}>
+      <div
+        className="reader__scroller"
+        ref={scrollerRef}
+        onClick={() => panel !== "none" && setPanel("none")}
+      >
         <div
           className="reader__lines"
           ref={linesRef}
-          style={{ fontSize: `calc(clamp(1.5rem, 4.5vw, 3.6rem) * ${fontScale})` }}
+          data-align={align}
+          style={{
+            fontSize: `calc(clamp(1.5rem, 4.5vw, 3.6rem) * ${fontScale})`,
+            textAlign: align,
+          }}
         >
           {lines.map((line, i) => (
             <p
@@ -255,6 +329,65 @@ export default function Reader({ doc, onExit }: Props) {
           ))}
         </div>
       </div>
+
+      {panel === "sound" && (
+        <div className="panel">
+          <span className="panel__title">Ortam sesi</span>
+          <div className="chips">
+            {AMBIENCES.map((a) => (
+              <button
+                key={a.id}
+                className={`chip ${sound === a.id ? "chip--on" : ""}`}
+                onClick={() => toggleSound(a.id)}
+              >
+                {a.emoji} {a.name}
+              </button>
+            ))}
+          </div>
+          <label className="volume">
+            <span className="panel__title">Ses seviyesi</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+            />
+          </label>
+        </div>
+      )}
+
+      {panel === "theme" && (
+        <div className="panel">
+          <span className="panel__title">Tema</span>
+          <div className="swatches">
+            {THEMES.map((t) => (
+              <button
+                key={t.id}
+                className={`swatch ${theme === t.id ? "swatch--on" : ""}`}
+                style={{
+                  background: `linear-gradient(135deg, ${t.swatch[0]}, ${t.swatch[1]})`,
+                }}
+                title={t.name}
+                onClick={() => onThemeChange(t.id)}
+              />
+            ))}
+          </div>
+          <span className="panel__title">Hizalama</span>
+          <div className="chips">
+            {ALIGNMENTS.map((a) => (
+              <button
+                key={a.id}
+                className={`chip ${align === a.id ? "chip--on" : ""}`}
+                onClick={() => setAlign(a.id)}
+              >
+                {a.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <footer className="reader__controls">
         <button
@@ -272,6 +405,13 @@ export default function Reader({ doc, onExit }: Props) {
           A+
         </button>
         <button
+          className={`iconBtn ${sound ? "iconBtn--live" : ""}`}
+          onClick={() => setPanel((p) => (p === "sound" ? "none" : "sound"))}
+          title="Ortam sesi"
+        >
+          {soundMeta ? soundMeta.emoji : "🎧"}
+        </button>
+        <button
           className="iconBtn iconBtn--play"
           onClick={() => setPlaying((p) => !p)}
           title="Otomatik akışı başlat/durdur (Boşluk)"
@@ -284,6 +424,13 @@ export default function Reader({ doc, onExit }: Props) {
           title="Akış hızı"
         >
           {SPEEDS[speedIdx]}×
+        </button>
+        <button
+          className="iconBtn"
+          onClick={() => setPanel((p) => (p === "theme" ? "none" : "theme"))}
+          title="Tema"
+        >
+          🎨
         </button>
         <button
           className="iconBtn"

@@ -10,9 +10,18 @@ akış ile metin bir şarkı gibi kayar.
 - 📄 **PDF, Word (.docx), TXT/MD** dosyası sürükle-bırak veya seç
 - 📋 Kopyala-yapıştır ile anında okuma
 - 🎤 Apple Music tarzı satır kayışı: aktif satır parlak, diğerleri soluk ve hafif bulanık
+- ✂️ **Cümle temelli akış**: kaydırma yalnızca cümle sonlarında olur, cümleler asla
+  ortadan bölünmez ("19. yüzyıl" gibi kalıplar ve kısaltmalar korunur)
+- 🎧 **Ortam sesleri**: yağmur, okyanus, şömine, üretken piyano, beyaz/derin gürültü —
+  tamamı Web Audio API ile sentezlenir, ses dosyası yok, **lisans sorunu yok**
+- 🎨 **6 tema**: Gece, Okyanus, Orman, Gün Batımı, Kağıt (açık), Gece Yarısı (OLED)
+- 📐 **Hizalama seçimi**: iki yana yaslı (varsayılan), sol, orta, sağ — Word'deki gibi
+- ⏯️ **Kaldığın yerden devam**: son belge ve konum tarayıcıda saklanır
+- ⏱️ Tahmini kalan okuma süresi
 - ⌨️ Klavye: `↓ ↑` satır, `PgDn PgUp` 5 satır, `Boşluk` oynat/durdur, `+ −` yazı boyutu, `F` tam ekran, `Esc` çıkış
 - ▶️ **Otomatik akış**: satır uzunluğuna göre kendi kendine ilerler (0.75× – 2× hız)
 - 🖱️ Satıra tıklayınca oraya atlar; fare tekerleğiyle serbest gezinme
+- 📱 PWA manifest'i ile "Ana ekrana ekle" desteği
 - 🔒 Tamamen tarayıcıda çalışır — dosyalar hiçbir sunucuya gönderilmez
 
 ## Geliştirme

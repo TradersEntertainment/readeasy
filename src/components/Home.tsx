@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { extractTextFromFile } from "../lib/extract";
+import { loadDoc, loadPos } from "../lib/storage";
 
 interface Props {
   onOpen: (title: string, text: string) => void;
+  onResume: () => void;
 }
 
 const SAMPLE_TITLE = "ReadEasy'e hoş geldin";
@@ -16,8 +18,18 @@ A− ve A+ düğmeleriyle yazı boyutunu değiştirebilir, tam ekran düğmesiyl
 Kendi metnini denemek için Esc tuşuyla geri dön; bir PDF, Word dosyası sürükle ya da metnini yapıştır.
 İyi okumalar!`;
 
-export default function Home({ onOpen }: Props) {
+export default function Home({ onOpen, onResume }: Props) {
   const [text, setText] = useState("");
+  const stored = useMemo(() => {
+    const doc = loadDoc();
+    if (!doc) return null;
+    const pos = Math.min(loadPos(), doc.lines.length - 1);
+    if (pos < 1) return null; // henüz okumaya başlanmamış
+    return {
+      title: doc.title,
+      percent: Math.round((pos / (doc.lines.length - 1)) * 100),
+    };
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -72,6 +84,12 @@ export default function Home({ onOpen }: Props) {
           Uzun metinleri, şarkı sözü okur gibi oku. Yapıştır ya da bir PDF /
           Word dosyası bırak — metin tam ekran, akıcı bir kayışa dönüşsün.
         </p>
+
+        {stored && (
+          <button className="btn btn--resume" onClick={onResume}>
+            ⏯ Kaldığın yerden devam et — {stored.title} (%{stored.percent})
+          </button>
+        )}
 
         <textarea
           className="home__textarea"

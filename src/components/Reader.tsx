@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Doc } from "../App";
+import { lineChars, type Doc } from "../lib/doc";
+import { cancel as ttsCancel, speak as ttsSpeak, ttsAvailable } from "../lib/tts";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
 import { loadSettings, savePos, saveSettings, type Align } from "../lib/storage";
@@ -31,7 +32,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const { lines } = doc;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const linesRef = useRef<HTMLDivElement>(null);
-  const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
+  const lineRefs = useRef<(HTMLElement | null)[]>([]);
   const centersRef = useRef<number[]>([]);
   const styledRange = useRef<[number, number]>([0, -1]);
   const activeRef = useRef(initialLine);
@@ -49,6 +50,9 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [sound, setSound] = useState<AmbienceId | null>(null);
   const [volume, setVolume] = useState(settings.volume);
   const [align, setAlign] = useState<Align>(settings.align);
+  const [tts, setTts] = useState(false);
+  const ttsRef = useRef(false);
+  ttsRef.current = tts;
   const premium = useRef(isPremium()).current;
   const [remaining, setRemaining] = useState(() => remainingSeconds());
   const [paywall, setPaywall] = useState(() => !premium && remainingSeconds() <= 0);
@@ -205,7 +209,8 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
           break;
         case " ":
           e.preventDefault();
-          setPlaying((p) => !p);
+          if (ttsRef.current) setTts(false);
+          else setPlaying((p) => !p);
           break;
         case "+":
         case "=":
@@ -228,18 +233,40 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   }, [goTo, lines.length, onExit]);
 
   // Otomatik akış: aktif satırın uzunluğuna ve seçilen hıza göre bekleyip
-  // bir sonraki satıra kayar.
+  // bir sonraki satıra kayar. (TTS açıkken akışı TTS sürer.)
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || tts) return;
     if (active >= lines.length - 1) {
       setPlaying(false);
       return;
     }
-    const chars = lines[active].length;
+    const chars = lineChars(lines[active]);
     const ms = Math.min(14000, Math.max(1700, 800 + chars * 55)) / SPEEDS[speedIdx];
     const timer = setTimeout(() => goTo(active + 1), ms);
     return () => clearTimeout(timer);
-  }, [playing, active, speedIdx, lines, goTo]);
+  }, [playing, tts, active, speedIdx, lines, goTo]);
+
+  // Sesli okuma: aktif satırı seslendir, bitince sonraki satıra kay.
+  // Görsel/tablo adımlarında kısa bir duraklamayla devam eder.
+  useEffect(() => {
+    if (!tts) {
+      ttsCancel();
+      return;
+    }
+    const line = lines[active];
+    if (line.kind !== "text") {
+      const timer = setTimeout(() => {
+        if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
+        else setTts(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+    ttsSpeak(line.text, SPEEDS[speedIdx], () => {
+      if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
+      else setTts(false);
+    });
+    return () => ttsCancel();
+  }, [tts, active, speedIdx, lines, goTo]);
 
   useEffect(() => {
     const onFsChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -290,6 +317,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       if (left <= 0) {
         setPaywall(true);
         setPlaying(false);
+        setTts(false);
       }
     }, 5000);
     return () => clearInterval(timer);
@@ -326,7 +354,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   // Kalan okuma süresi tahmini
   const cumulativeChars = useMemo(() => {
     const sums = [0];
-    for (const line of lines) sums.push(sums[sums.length - 1] + line.length);
+    for (const line of lines) sums.push(sums[sums.length - 1] + lineChars(line));
     return sums;
   }, [lines]);
   const remainingMin = Math.ceil(
@@ -369,18 +397,39 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             textAlign: align,
           }}
         >
-          {lines.map((line, i) => (
-            <p
-              key={i}
-              ref={(el) => {
-                lineRefs.current[i] = el;
-              }}
-              className="line"
-              onClick={() => goTo(i)}
-            >
-              {line}
-            </p>
-          ))}
+          {lines.map((line, i) => {
+            const setRef = (el: HTMLElement | null) => {
+              lineRefs.current[i] = el;
+            };
+            if (line.kind === "image") {
+              return (
+                <figure
+                  key={i}
+                  ref={setRef}
+                  className="line line--media"
+                  onClick={() => goTo(i)}
+                >
+                  <img src={line.src} alt="" />
+                </figure>
+              );
+            }
+            if (line.kind === "table") {
+              return (
+                <div
+                  key={i}
+                  ref={setRef}
+                  className="line line--media line--table"
+                  onClick={() => goTo(i)}
+                  dangerouslySetInnerHTML={{ __html: line.html }}
+                />
+              );
+            }
+            return (
+              <p key={i} ref={setRef} className="line" onClick={() => goTo(i)}>
+                {line.text}
+              </p>
+            );
+          })}
         </div>
       </div>
 
@@ -476,6 +525,19 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         >
           {soundMeta ? soundMeta.emoji : "🎧"}
         </button>
+        {ttsAvailable() && (
+          <button
+            className={`iconBtn ${tts ? "iconBtn--live" : ""}`}
+            onClick={() => {
+              thump();
+              setPlaying(false);
+              setTts((t) => !t);
+            }}
+            title="Sesli okuma"
+          >
+            🗣️
+          </button>
+        )}
         <button
           className="iconBtn iconBtn--play"
           onClick={() => {

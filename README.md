@@ -8,6 +8,13 @@ akış ile metin bir şarkı gibi kayar.
 ## Özellikler
 
 - 📄 **PDF, Word (.docx), TXT/MD** dosyası sürükle-bırak veya seç
+- 🖼️ **PDF ve Word'deki görseller** akışın içinde kart olarak gösterilir
+  (PDF'te sayfanın gömülü görselleri çıkarılır; sayfa metninin ardına eklenir)
+- 📊 **Word tabloları** gerçek tablo olarak akışta yer alır (temizlenmiş HTML;
+  PDF tabloları şimdilik metin olarak akar — güvenilir tablo tespiti PDF'te yok)
+- 🗣️ **Sesli okuma (TTS)**: tarayıcının yerleşik sesleriyle ücretsiz; okunan
+  satır otomatik kayar. Premium neural TTS için sağlayıcı soketi hazır
+  (`src/lib/tts.ts`)
 - 📋 Kopyala-yapıştır ile anında okuma
 - 🎤 Apple Music tarzı satır kayışı: aktif satır parlak, diğerleri soluk ve hafif bulanık
 - ✂️ **Cümle temelli akış**: kaydırma yalnızca cümle sonlarında olur, cümleler asla

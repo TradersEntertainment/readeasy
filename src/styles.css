@@ -543,6 +543,47 @@ button {
   transform: scale(1.12);
 }
 
+/* ---------- Medya satırları (görsel / tablo) ---------- */
+
+.line--media {
+  display: flex;
+  justify-content: center;
+}
+
+.line--media img {
+  max-width: 100%;
+  max-height: 62vh;
+  border-radius: 18px;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.35);
+}
+
+.line--table {
+  display: block;
+  font-weight: 500;
+  font-size: 0.42em;
+  line-height: 1.5;
+  letter-spacing: 0;
+  overflow-x: auto;
+  text-align: left;
+}
+
+.line--table table {
+  border-collapse: collapse;
+  margin: 0 auto;
+  min-width: 60%;
+}
+
+.line--table td,
+.line--table th {
+  border: 1px solid rgba(var(--ink-rgb), 0.25);
+  padding: 0.5em 0.8em;
+  vertical-align: top;
+}
+
+.line--table th {
+  background: rgba(var(--ink-rgb), 0.08);
+}
+
 /* ---------- Kota / Premium ekranı ---------- */
 
 .paywall {

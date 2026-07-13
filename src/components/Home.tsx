@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { extractTextFromFile } from "../lib/extract";
+import { extractFromFile, type Extracted } from "../lib/extract";
 import { loadDoc, loadPos } from "../lib/storage";
 
 interface Props {
-  onOpen: (title: string, text: string) => void;
+  onOpen: (title: string, blocks: Extracted[]) => void;
   onResume: () => void;
 }
 
@@ -40,13 +40,16 @@ export default function Home({ onOpen, onResume }: Props) {
       setBusy(true);
       setError(null);
       try {
-        const extracted = await extractTextFromFile(file);
-        if (!extracted.trim()) {
+        const blocks = await extractFromFile(file);
+        const hasContent = blocks.some(
+          (b) => b.kind !== "text" || b.text.trim(),
+        );
+        if (!hasContent) {
           throw new Error(
-            "Dosyadan metin çıkarılamadı. (Taranmış/görüntü PDF'lerde metin katmanı bulunmaz.)",
+            "Dosyadan içerik çıkarılamadı. (Taranmış/görüntü PDF'lerde metin katmanı bulunmaz.)",
           );
         }
-        onOpen(file.name.replace(/\.[^.]+$/, ""), extracted);
+        onOpen(file.name.replace(/\.[^.]+$/, ""), blocks);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Dosya okunamadı.");
       } finally {
@@ -103,7 +106,7 @@ export default function Home({ onOpen, onResume }: Props) {
           <button
             className="btn btn--primary"
             disabled={busy || !text.trim()}
-            onClick={() => onOpen("Yapıştırılan metin", text)}
+            onClick={() => onOpen("Yapıştırılan metin", [{ kind: "text", text }])}
           >
             Okumaya başla
           </button>
@@ -117,7 +120,7 @@ export default function Home({ onOpen, onResume }: Props) {
           <button
             className="btn btn--ghost"
             disabled={busy}
-            onClick={() => onOpen(SAMPLE_TITLE, SAMPLE_TEXT)}
+            onClick={() => onOpen(SAMPLE_TITLE, [{ kind: "text", text: SAMPLE_TEXT }])}
           >
             Örnekle dene
           </button>

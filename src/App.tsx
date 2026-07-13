@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Home from "./components/Home";
 import Reader from "./components/Reader";
-import { splitIntoLines } from "./lib/text";
+import { blocksToLines, type Doc } from "./lib/doc";
+import type { Extracted } from "./lib/extract";
 import { applyTheme } from "./lib/themes";
 import { loadDoc, loadPos, loadSettings, saveDoc, saveSettings } from "./lib/storage";
 import { setPremium } from "./lib/premium";
@@ -14,10 +15,7 @@ if (new URLSearchParams(window.location.search).get("premium") === "1") {
   window.history.replaceState(null, "", window.location.pathname);
 }
 
-export interface Doc {
-  title: string;
-  lines: string[];
-}
+export type { Doc };
 
 export default function App() {
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -29,8 +27,8 @@ export default function App() {
     saveSettings({ theme });
   }, [theme]);
 
-  const openText = useCallback((title: string, text: string) => {
-    const lines = splitIntoLines(text);
+  const openBlocks = useCallback((title: string, blocks: Extracted[]) => {
+    const lines = blocksToLines(blocks);
     if (lines.length === 0) return;
     saveDoc({ title, lines });
     setInitialLine(0);
@@ -55,5 +53,5 @@ export default function App() {
       />
     );
   }
-  return <Home onOpen={openText} onResume={resume} />;
+  return <Home onOpen={openBlocks} onResume={resume} />;
 }

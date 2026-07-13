@@ -1,6 +1,7 @@
 // Kullanıcı tercihlerinin ve son okunan belgenin localStorage'da saklanması.
 
 import type { AmbienceId } from "./ambience";
+import type { Line } from "./doc";
 
 export type Align = "left" | "center" | "right" | "justify";
 
@@ -17,8 +18,9 @@ const SETTINGS_KEY = "readeasy:settings";
 const DOC_KEY = "readeasy:doc";
 const POS_KEY = "readeasy:pos";
 
-// Çok büyük belgeleri localStorage kotasını doldurmamak için saklamayız.
-const MAX_STORED_CHARS = 1_500_000;
+// Çok büyük belgeleri (görsel data URL'leri dahil) localStorage kotasını
+// doldurmamak için saklamayız; böyle belgelerde "devam et" sunulmaz.
+const MAX_STORED_CHARS = 3_000_000;
 
 const DEFAULTS: Settings = {
   theme: "gece",
@@ -51,12 +53,17 @@ export function saveSettings(patch: Partial<Settings>) {
 
 export interface StoredDoc {
   title: string;
-  lines: string[];
+  lines: Line[];
+}
+
+function lineSize(line: Line): number {
+  if (line.kind === "text") return line.text.length;
+  return line.kind === "image" ? line.src.length : line.html.length;
 }
 
 export function saveDoc(doc: StoredDoc) {
   try {
-    const size = doc.lines.reduce((sum, l) => sum + l.length, 0);
+    const size = doc.lines.reduce((sum, l) => sum + lineSize(l), 0);
     if (size > MAX_STORED_CHARS) {
       localStorage.removeItem(DOC_KEY);
       return;
@@ -75,6 +82,13 @@ export function loadDoc(): StoredDoc | null {
     const doc = JSON.parse(raw) as StoredDoc;
     if (!doc.title || !Array.isArray(doc.lines) || doc.lines.length === 0) {
       return null;
+    }
+    // eski sürüm kayıtları: satırlar düz string dizisiydi
+    if (typeof (doc.lines as unknown[])[0] === "string") {
+      doc.lines = (doc.lines as unknown as string[]).map((text) => ({
+        kind: "text",
+        text,
+      }));
     }
     return doc;
   } catch {

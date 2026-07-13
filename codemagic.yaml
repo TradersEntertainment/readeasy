@@ -1,0 +1,61 @@
+# Codemagic ile Mac'siz iOS derleme ve App Store'a yayın.
+#
+# Kurulum (bir kez):
+#   1. codemagic.io hesabı aç (GitHub ile giriş) ve bu repoyu bağla.
+#   2. App Store Connect'te bir API anahtarı oluştur:
+#      Users and Access → Integrations → App Store Connect API → (+)
+#      Rol: App Manager. .p8 dosyasını indir.
+#   3. Codemagic → Teams → Integrations → Developer Portal → anahtarı
+#      "ReadEasy" adıyla ekle (aşağıdaki app_store_connect değeriyle aynı).
+#   4. App Store Connect → Apps → (+) ile uygulamayı oluştur
+#      (Bundle ID: com.tradersentertainment.readeasy) ve uygulamanın
+#      "Apple ID" (sayısal) değerini aşağıdaki APP_STORE_APPLE_ID'ye yaz.
+#   5. Codemagic'te bu workflow'u başlat. İmza sertifikası ve provisioning
+#      profili API anahtarıyla otomatik oluşturulur — Mac gerekmez.
+
+workflows:
+  ios-appstore:
+    name: iOS · TestFlight & App Store
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: ReadEasy
+    environment:
+      vars:
+        BUNDLE_ID: com.tradersentertainment.readeasy
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+        APP_STORE_APPLE_ID: 0000000000 # App Store Connect'teki sayısal Apple ID ile değiştirin
+      node: 22.14.0
+      xcode: latest
+    scripts:
+      - name: Web uygulamasını derle
+        script: |
+          npm ci
+          npm run build
+      - name: Capacitor iOS senkronizasyonu
+        script: npx cap sync ios
+      - name: İmza dosyalarını hazırla (sertifika + profil, otomatik)
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Sürüm numarasını ayarla
+        script: |
+          cd ios/App
+          agvtool new-version -all $((${PROJECT_BUILD_NUMBER:-1}))
+      - name: IPA derle
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integrations
+        submit_to_testflight: true
+        # İnceleme sonrası mağazaya otomatik göndermek isterseniz:
+        # submit_to_app_store: true

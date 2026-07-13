@@ -48,6 +48,25 @@ Uygulama tamamen statik bir Vite sitesidir; backend gerektirmez.
    (`start` script'i `vite preview` ile `dist` klasörünü `$PORT` üzerinden servis eder).
 3. Ayar gerekmez.
 
+## App Store'a Yayın (Mac gerektirmez)
+
+Repo, [Capacitor](https://capacitorjs.com) ile native iOS projesi içerir (`ios/`)
+ve derleme bulutta bir Mac'te yapılır — kendi Mac'inize gerek yoktur.
+
+1. **Apple Developer Program** üyeliği alın (99 $/yıl) — iPhone veya herhangi
+   bir bilgisayardan yapılabilir: developer.apple.com
+2. **App Store Connect**'te uygulamayı oluşturun
+   (Bundle ID: `com.tradersentertainment.readeasy`).
+3. **Codemagic** hesabı açıp repoyu bağlayın; `codemagic.yaml` içindeki
+   adımları izleyerek App Store Connect API anahtarını ekleyin.
+   Ücretsiz katman (500 dk/ay macOS derleme) bu proje için fazlasıyla yeterli.
+4. Workflow'u çalıştırın → imza sertifikaları otomatik oluşturulur, uygulama
+   derlenir ve **TestFlight**'a yüklenir. iPhone'unuza TestFlight uygulamasını
+   kurup denedikten sonra App Store incelemesine gönderin.
+
+Alternatifler: GitHub Actions macOS runner + fastlane, ya da mağazasız dağıtım
+için PWA (Safari → Paylaş → Ana Ekrana Ekle — bugün zaten çalışıyor).
+
 ## Teknolojiler
 
 - [Vite](https://vitejs.dev) + [React](https://react.dev) + TypeScript

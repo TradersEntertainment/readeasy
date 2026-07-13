@@ -304,7 +304,8 @@ button {
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  padding: 1rem 1.25rem;
+  /* iPhone çentiği / Dynamic Island için güvenli alan */
+  padding: calc(1rem + env(safe-area-inset-top, 0px)) 1.25rem 1rem;
   z-index: 2;
   background: linear-gradient(180deg, rgba(var(--shade-rgb), 0.9), transparent);
   pointer-events: none;
@@ -411,7 +412,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 0.7rem;
-  padding: 1.1rem 1.25rem 1.4rem;
+  padding: 1.1rem 1.25rem calc(1.4rem + env(safe-area-inset-bottom, 0px));
   z-index: 2;
   background: linear-gradient(0deg, rgba(var(--shade-rgb), 0.92), transparent);
 }

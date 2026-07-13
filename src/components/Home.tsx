@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { extractFromFile, type Extracted } from "../lib/extract";
 import { loadDoc, loadPos } from "../lib/storage";
+import { fetchFromUrl } from "../lib/url";
+import { loadStats } from "../lib/stats";
 
 interface Props {
   onOpen: (title: string, blocks: Extracted[]) => void;
@@ -20,6 +22,8 @@ Kendi metnini denemek için Esc tuşuyla geri dön; bir PDF, Word dosyası sür�
 
 export default function Home({ onOpen, onResume }: Props) {
   const [text, setText] = useState("");
+  const [url, setUrl] = useState("");
+  const stats = useMemo(loadStats, []);
   const stored = useMemo(() => {
     const doc = loadDoc();
     if (!doc) return null;
@@ -59,6 +63,20 @@ export default function Home({ onOpen, onResume }: Props) {
     [onOpen],
   );
 
+  const openUrl = useCallback(async () => {
+    if (!url.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await fetchFromUrl(url);
+      onOpen(result.title, result.blocks);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Link içeriği alınamadı.");
+    } finally {
+      setBusy(false);
+    }
+  }, [url, onOpen]);
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
@@ -88,11 +106,40 @@ export default function Home({ onOpen, onResume }: Props) {
           Word dosyası bırak — metin tam ekran, akıcı bir kayışa dönüşsün.
         </p>
 
+        {stats.totalSeconds >= 60 && (
+          <p className="home__stats">
+            🔥 {stats.streak} gün seri · ⏱{" "}
+            {Math.round(stats.totalSeconds / 60).toLocaleString("tr-TR")} dk
+            okuma · 📚 {stats.words.toLocaleString("tr-TR")} kelime
+          </p>
+        )}
+
         {stored && (
           <button className="btn btn--resume" onClick={onResume}>
             ⏯ Kaldığın yerden devam et — {stored.title} (%{stored.percent})
           </button>
         )}
+
+        <div className="home__urlRow">
+          <input
+            className="home__url"
+            type="url"
+            placeholder="🔗 Link yapıştır — makale, ChatGPT/Claude sohbet paylaşımı…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void openUrl();
+            }}
+            spellCheck={false}
+          />
+          <button
+            className="btn btn--primary"
+            disabled={busy || !url.trim()}
+            onClick={() => void openUrl()}
+          >
+            {busy ? "…" : "Getir"}
+          </button>
+        </div>
 
         <textarea
           className="home__textarea"

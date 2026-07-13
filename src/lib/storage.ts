@@ -12,6 +12,8 @@ export interface Settings {
   ambience: AmbienceId;
   volume: number;
   align: Align;
+  bionic: boolean;
+  rsvpWpm: number;
 }
 
 const SETTINGS_KEY = "readeasy:settings";
@@ -29,6 +31,8 @@ const DEFAULTS: Settings = {
   ambience: "rain",
   volume: 0.6,
   align: "justify",
+  bionic: false,
+  rsvpWpm: 320,
 };
 
 export function loadSettings(): Settings {

@@ -6,7 +6,10 @@ import { THEMES } from "../lib/themes";
 import { loadSettings, savePos, saveSettings, type Align } from "../lib/storage";
 import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from "../lib/premium";
 import { tick, thump } from "../lib/haptics";
+import { trackSeconds, trackWords } from "../lib/stats";
+import { buildShareUrl } from "../lib/share";
 import Paywall from "./Paywall";
+import Rsvp from "./Rsvp";
 
 interface Props {
   doc: Doc;
@@ -27,6 +30,22 @@ const STYLE_WINDOW = 14; // aktif satırın etrafında stillenecek satır sayıs
 const READING_CPS = 16; // kalan süre tahmini için ortalama karakter/saniye
 
 type Panel = "none" | "sound" | "theme";
+
+// Bionic okuma: her kelimenin ilk ~%40'ı kalın — göz kelimeyi yarım
+// görüp beynin tamamlamasına izin verir, odaklanmayı kolaylaştırır.
+function bionicWords(text: string) {
+  return text.split(" ").map((word, i) => {
+    const letters = word.replace(/[^\p{L}\p{N}]/gu, "").length || word.length;
+    const n = Math.max(1, Math.ceil(letters * 0.4));
+    return (
+      <span key={i}>
+        {i > 0 ? " " : ""}
+        <b>{word.slice(0, n)}</b>
+        {word.slice(n)}
+      </span>
+    );
+  });
+}
 
 export default function Reader({ doc, initialLine, theme, onThemeChange, onExit }: Props) {
   const { lines } = doc;
@@ -53,6 +72,11 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [tts, setTts] = useState(false);
   const ttsRef = useRef(false);
   ttsRef.current = tts;
+  const [bionic, setBionic] = useState(settings.bionic);
+  const [rsvp, setRsvp] = useState(false);
+  const rsvpRef = useRef(false);
+  rsvpRef.current = rsvp;
+  const [toast, setToast] = useState<string | null>(null);
   const premium = useRef(isPremium()).current;
   const [remaining, setRemaining] = useState(() => remainingSeconds());
   const [paywall, setPaywall] = useState(() => !premium && remainingSeconds() <= 0);
@@ -178,6 +202,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (paywallRef.current) return; // kota ekranı açıkken gezinme kilitli
+      if (rsvpRef.current) return; // hız modu kendi kısayollarını yönetir
       switch (e.key) {
         case "ArrowDown":
         case "ArrowRight":
@@ -278,7 +303,23 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   useEffect(() => saveSettings({ fontScale }), [fontScale]);
   useEffect(() => saveSettings({ speedIdx }), [speedIdx]);
   useEffect(() => saveSettings({ align }), [align]);
+  useEffect(() => saveSettings({ bionic }), [bionic]);
   useEffect(() => savePos(active), [active]);
+
+  // İstatistik: ileri gidilen satırların kelimeleri.
+  const prevActiveRef = useRef(initialLine);
+  useEffect(() => {
+    const prev = prevActiveRef.current;
+    prevActiveRef.current = active;
+    if (active > prev) {
+      let words = 0;
+      for (let i = prev; i < active; i++) {
+        const line = lines[i];
+        if (line.kind === "text") words += line.text.split(/\s+/).length;
+      }
+      trackWords(words);
+    }
+  }, [active, lines]);
 
   // Satır geçişinde çok hafif dokunsal geri bildirim.
   useEffect(() => {
@@ -306,11 +347,13 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     };
   }, []);
 
-  // Ücretsiz kullanım sayacı: sekme görünürken her 5 saniyede bir işle.
+  // Süre sayacı: sekme görünürken her 5 saniyede bir işle — istatistik
+  // herkes için, kota yalnızca ücretsiz kullanıcılar için.
   useEffect(() => {
-    if (premium) return;
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible" || paywallRef.current) return;
+      trackSeconds(5);
+      if (premium) return;
       addReadingSeconds(5);
       const left = remainingSeconds();
       setRemaining(left);
@@ -318,10 +361,30 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         setPaywall(true);
         setPlaying(false);
         setTts(false);
+        setRsvp(false);
       }
     }, 5000);
     return () => clearInterval(timer);
   }, [premium]);
+
+  const share = () => {
+    const url = buildShareUrl(doc.title, lines);
+    if (!url) {
+      showToast("Bu belge paylaşmak için çok büyük ya da metin içermiyor.");
+      return;
+    }
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => showToast("Okuma linki kopyalandı 🔗"))
+      .catch(() => showToast("Link kopyalanamadı."));
+  };
+
+  const toastTimer = useRef(0);
+  const showToast = (msg: string) => {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2600);
+  };
 
   // Ses: seviye değişimini motora aktar; okuyucudan çıkınca sesi kapat.
   useEffect(() => {
@@ -364,6 +427,47 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
 
   const progress = lines.length > 1 ? active / (lines.length - 1) : 1;
   const soundMeta = AMBIENCES.find((a) => a.id === sound);
+  const hasText = useMemo(() => lines.some((l) => l.kind === "text"), [lines]);
+
+  // Satır listesi yalnızca içerik/bionic değişince yeniden kurulur; aktif
+  // satır stilleri ref'ler üzerinden yönetildiği için scroll ucuzdur.
+  const renderedLines = useMemo(
+    () =>
+      lines.map((line, i) => {
+        const setRef = (el: HTMLElement | null) => {
+          lineRefs.current[i] = el;
+        };
+        if (line.kind === "image") {
+          return (
+            <figure
+              key={i}
+              ref={setRef}
+              className="line line--media"
+              onClick={() => goTo(i)}
+            >
+              <img src={line.src} alt="" />
+            </figure>
+          );
+        }
+        if (line.kind === "table") {
+          return (
+            <div
+              key={i}
+              ref={setRef}
+              className="line line--media line--table"
+              onClick={() => goTo(i)}
+              dangerouslySetInnerHTML={{ __html: line.html }}
+            />
+          );
+        }
+        return (
+          <p key={i} ref={setRef} className="line" onClick={() => goTo(i)}>
+            {bionic ? bionicWords(line.text) : line.text}
+          </p>
+        );
+      }),
+    [lines, bionic, goTo],
+  );
 
   return (
     <div className="reader">
@@ -372,6 +476,9 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       <header className="reader__top">
         <button className="iconBtn" onClick={onExit} title="Kapat (Esc)">
           ✕
+        </button>
+        <button className="iconBtn" onClick={share} title="Okuma linki paylaş">
+          🔗
         </button>
         <span className="reader__title">{doc.title}</span>
         <span className="reader__counter">
@@ -397,39 +504,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             textAlign: align,
           }}
         >
-          {lines.map((line, i) => {
-            const setRef = (el: HTMLElement | null) => {
-              lineRefs.current[i] = el;
-            };
-            if (line.kind === "image") {
-              return (
-                <figure
-                  key={i}
-                  ref={setRef}
-                  className="line line--media"
-                  onClick={() => goTo(i)}
-                >
-                  <img src={line.src} alt="" />
-                </figure>
-              );
-            }
-            if (line.kind === "table") {
-              return (
-                <div
-                  key={i}
-                  ref={setRef}
-                  className="line line--media line--table"
-                  onClick={() => goTo(i)}
-                  dangerouslySetInnerHTML={{ __html: line.html }}
-                />
-              );
-            }
-            return (
-              <p key={i} ref={setRef} className="line" onClick={() => goTo(i)}>
-                {line.text}
-              </p>
-            );
-          })}
+          {renderedLines}
         </div>
       </div>
 
@@ -489,7 +564,30 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
               </button>
             ))}
           </div>
+          <span className="panel__title">Okuma yardımı</span>
+          <div className="chips">
+            <button
+              className={`chip ${bionic ? "chip--on" : ""}`}
+              onClick={() => setBionic((b) => !b)}
+            >
+              🧠 Bionic okuma
+            </button>
+          </div>
         </div>
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
+
+      {rsvp && (
+        <Rsvp
+          lines={lines}
+          startLine={active}
+          initialWpm={settings.rsvpWpm}
+          onClose={(lineIndex) => {
+            setRsvp(false);
+            requestAnimationFrame(() => goTo(lineIndex, "auto"));
+          }}
+        />
       )}
 
       {paywall && (
@@ -536,6 +634,20 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             title="Sesli okuma"
           >
             🗣️
+          </button>
+        )}
+        {hasText && (
+          <button
+            className="iconBtn"
+            onClick={() => {
+              thump();
+              setPlaying(false);
+              setTts(false);
+              setRsvp(true);
+            }}
+            title="Hız modu — kelime kelime (RSVP)"
+          >
+            ⚡
           </button>
         )}
         <button

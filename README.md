@@ -16,6 +16,16 @@ akış ile metin bir şarkı gibi kayar.
   satır otomatik kayar. Premium neural TTS için sağlayıcı soketi hazır
   (`src/lib/tts.ts`)
 - 📋 Kopyala-yapıştır ile anında okuma
+- 🔗 **Link'ten okuma**: makale linki ya da **ChatGPT / Claude / Gemini sohbet
+  paylaşım linki** yapıştır → içerik çekilip kayışa dönüşür (önce doğrudan,
+  CORS engellenirse [r.jina.ai](https://jina.ai/reader) okuyucu proxy'siyle;
+  markdown tabloları gerçek tabloya çevrilir)
+- ⚡ **RSVP hız modu**: kelimeler sabit odak noktasında tek tek akar
+  (Spritz tarzı, ORP harfi vurgulu, 120–700 kelime/dk, noktalama duraklı)
+- 🧠 **Bionic okuma**: kelimelerin ilk ~%40'ı kalın — odak kolaylaşır
+- 📤 **Okuma linki paylaş**: metin sıkıştırılıp URL'e gömülür; linki açan
+  aynı kayışı görür (sunucusuz, ~60K karaktere kadar)
+- 🔥 **İstatistikler**: gün serisi (streak), toplam okuma süresi, kelime sayısı
 - 🎤 Apple Music tarzı satır kayışı: aktif satır parlak, diğerleri soluk ve hafif bulanık
 - ✂️ **Cümle temelli akış**: kaydırma yalnızca cümle sonlarında olur, cümleler asla
   ortadan bölünmez ("19. yüzyıl" gibi kalıplar ve kısaltmalar korunur)

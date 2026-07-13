@@ -543,6 +543,159 @@ button {
   transform: scale(1.12);
 }
 
+.home__urlRow {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.home__url {
+  flex: 1;
+  min-width: 0;
+  padding: 0.75rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.home__url:focus {
+  border-color: var(--accent);
+}
+
+.home__stats {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+/* ---------- Bionic okuma ---------- */
+
+.line b {
+  font-weight: 900;
+}
+
+/* ---------- Bildirim (toast) ---------- */
+
+.toast {
+  position: absolute;
+  bottom: 6.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 0.7rem 1.2rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(var(--shade-rgb), 0.92);
+  border: 1px solid rgba(var(--ink-rgb), 0.15);
+  backdrop-filter: blur(12px);
+  animation: toastIn 0.25s ease;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* ---------- RSVP hız modu ---------- */
+
+.rsvp {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(
+      70vw 70vh at 50% 50%,
+      color-mix(in srgb, var(--accent) 10%, transparent),
+      transparent 70%
+    ),
+    rgba(var(--shade-rgb), 0.97);
+}
+
+.rsvp__progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.2s linear;
+}
+
+.rsvp__close {
+  position: absolute;
+  top: calc(1rem + env(safe-area-inset-top, 0px));
+  left: 1.25rem;
+}
+
+.rsvp__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  width: min(700px, 92vw);
+}
+
+.rsvp__guide {
+  width: 2px;
+  height: 1.3rem;
+  background: rgba(var(--ink-rgb), 0.3);
+}
+
+.rsvp__word {
+  display: flex;
+  width: 100%;
+  font-size: clamp(2.4rem, 8vw, 5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.rsvp__pre {
+  flex: 1;
+  text-align: right;
+}
+
+.rsvp__orp {
+  color: var(--accent);
+  padding: 0 0.02em;
+}
+
+.rsvp__post {
+  flex: 1;
+  text-align: left;
+}
+
+.rsvp__controls {
+  position: absolute;
+  bottom: calc(1.4rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.rsvp__wpm {
+  min-width: 5.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 /* ---------- Medya satırları (görsel / tablo) ---------- */
 
 .line--media {

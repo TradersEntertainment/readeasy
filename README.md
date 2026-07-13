@@ -48,6 +48,25 @@ Uygulama tamamen statik bir Vite sitesidir; backend gerektirmez.
    (`start` script'i `vite preview` ile `dist` klasörünü `$PORT` üzerinden servis eder).
 3. Ayar gerekmez.
 
+## Gelir Modeli (Freemium)
+
+- Günde **20 dk ücretsiz** okuma (`src/lib/premium.ts` → `FREE_SECONDS_PER_DAY`).
+- Süre dolunca: **ödüllü reklam izle → +30 dk** ya da **Premium** (sınırsız + reklamsız).
+- Reklam alanı şu an demo yer tutucudur; canlıda iOS'ta **AdMob rewarded**,
+  web'de AdSense bağlanacak (`src/components/Paywall.tsx` içindeki AdSlot).
+- Premium düğmesi `VITE_PREMIUM_URL` ortam değişkenindeki ödeme sayfasını açar
+  (ör. Stripe Payment Link; başarı yönlendirmesi `/?premium=1`).
+  ⚠️ Premium hakkı şimdilik localStorage'dadır — gerçek ödeme entegrasyonunda
+  sunucu doğrulaması eklenmelidir. iOS uygulaması içinde satışın
+  **Apple In-App Purchase** ile yapılması zorunludur.
+
+## Native Dokunuşlar
+
+- 📳 Satır geçişinde hafif, oynat/durdurda orta **titreşim** (iOS'ta Capacitor
+  Haptics, web'de `navigator.vibrate`)
+- 🔆 Okurken **ekran uyanık kalır** (web'de Wake Lock API, iOS'ta
+  `isIdleTimerDisabled`)
+
 ## App Store'a Yayın (Mac gerektirmez)
 
 Repo, [Capacitor](https://capacitorjs.com) ile native iOS projesi içerir (`ios/`)

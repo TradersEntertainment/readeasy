@@ -3,6 +3,9 @@ import type { Doc } from "../App";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
 import { loadSettings, savePos, saveSettings, type Align } from "../lib/storage";
+import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from "../lib/premium";
+import { tick, thump } from "../lib/haptics";
+import Paywall from "./Paywall";
 
 interface Props {
   doc: Doc;
@@ -46,6 +49,11 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [sound, setSound] = useState<AmbienceId | null>(null);
   const [volume, setVolume] = useState(settings.volume);
   const [align, setAlign] = useState<Align>(settings.align);
+  const premium = useRef(isPremium()).current;
+  const [remaining, setRemaining] = useState(() => remainingSeconds());
+  const [paywall, setPaywall] = useState(() => !premium && remainingSeconds() <= 0);
+  const paywallRef = useRef(paywall);
+  paywallRef.current = paywall;
 
   // Her satırın kayış içindeki dikey merkezini ölç (scroll sırasında layout
   // okuması yapmamak için önbelleğe alınır).
@@ -165,6 +173,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   // Klavye kısayolları.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (paywallRef.current) return; // kota ekranı açıkken gezinme kilitli
       switch (e.key) {
         case "ArrowDown":
         case "ArrowRight":
@@ -244,6 +253,48 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   useEffect(() => saveSettings({ align }), [align]);
   useEffect(() => savePos(active), [active]);
 
+  // Satır geçişinde çok hafif dokunsal geri bildirim.
+  useEffect(() => {
+    if (active !== initialLine) tick();
+  }, [active, initialLine]);
+
+  // Okurken ekran uyanık kalsın (Wake Lock API — iOS native tarafında ayrıca
+  // AppDelegate'te isIdleTimerDisabled ayarlanır).
+  useEffect(() => {
+    let lock: WakeLockSentinel | null = null;
+    const acquire = () => {
+      navigator.wakeLock
+        ?.request("screen")
+        .then((l) => (lock = l))
+        .catch(() => {});
+    };
+    acquire();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") acquire();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      void lock?.release().catch(() => {});
+    };
+  }, []);
+
+  // Ücretsiz kullanım sayacı: sekme görünürken her 5 saniyede bir işle.
+  useEffect(() => {
+    if (premium) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible" || paywallRef.current) return;
+      addReadingSeconds(5);
+      const left = remainingSeconds();
+      setRemaining(left);
+      if (left <= 0) {
+        setPaywall(true);
+        setPlaying(false);
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [premium]);
+
   // Ses: seviye değişimini motora aktar; okuyucudan çıkınca sesi kapat.
   useEffect(() => {
     ambience.setVolume(volume);
@@ -296,6 +347,9 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         </button>
         <span className="reader__title">{doc.title}</span>
         <span className="reader__counter">
+          {!premium &&
+            Number.isFinite(remaining) &&
+            `Ücretsiz: ${Math.max(0, Math.ceil(remaining / 60))} dk · `}
           {remainingMin > 0 && `≈${remainingMin} dk · `}
           {active + 1} / {lines.length}
         </span>
@@ -389,6 +443,17 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         </div>
       )}
 
+      {paywall && (
+        <Paywall
+          onReward={() => {
+            grantAdReward();
+            setRemaining(remainingSeconds());
+            setPaywall(false);
+          }}
+          onExit={onExit}
+        />
+      )}
+
       <footer className="reader__controls">
         <button
           className="iconBtn"
@@ -413,7 +478,10 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         </button>
         <button
           className="iconBtn iconBtn--play"
-          onClick={() => setPlaying((p) => !p)}
+          onClick={() => {
+            thump();
+            setPlaying((p) => !p);
+          }}
           title="Otomatik akışı başlat/durdur (Boşluk)"
         >
           {playing ? "⏸" : "▶"}

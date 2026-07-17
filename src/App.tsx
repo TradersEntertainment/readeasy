@@ -6,7 +6,8 @@ import type { Extracted } from "./lib/extract";
 import { applyTheme } from "./lib/themes";
 import { loadDoc, loadPos, loadSettings, saveDoc, saveSettings } from "./lib/storage";
 import { setPremium } from "./lib/premium";
-import { parseShareHash } from "./lib/share";
+import { decodeSharePayload, parseShareHash, parseShortHashId, type SharedDoc } from "./lib/share";
+import { fetchShortLink } from "./lib/shortlink";
 
 // Ödeme sağlayıcısının başarı yönlendirmesi (ör. Stripe success_url →
 // https://site/?premium=1). GEÇİCİ: gerçek ödeme entegrasyonunda bu hak
@@ -43,16 +44,33 @@ export default function App() {
     setDoc({ title, lines });
   }, []);
 
-  // Paylaşılan okuma linkiyle gelindi mi? (#d=... hash'i)
+  // Paylaşılan okuma linkiyle gelindi mi?
+  // #d=... → içerik URL'de (senkron), #s=... → içerik sunucuda (async).
   useEffect(() => {
-    const shared = parseShareHash();
-    if (shared) {
+    const openShared = (shared: SharedDoc) => {
       window.history.replaceState(null, "", window.location.pathname);
       openBlocks(shared.title, [{ kind: "text", text: shared.text }]);
       setInvite({
         sender: shared.sender,
         note: shared.note,
         title: shared.title,
+      });
+    };
+
+    const shared = parseShareHash();
+    if (shared) {
+      openShared(shared);
+      return;
+    }
+    const shortId = parseShortHashId();
+    if (shortId) {
+      void fetchShortLink(shortId).then((payload) => {
+        const doc = payload && decodeSharePayload(payload);
+        if (doc) openShared(doc);
+        else {
+          window.history.replaceState(null, "", window.location.pathname);
+          console.warn("Kısa paylaşım linki çözülemedi:", shortId);
+        }
       });
     }
   }, [openBlocks]);

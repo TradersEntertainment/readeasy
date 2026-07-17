@@ -7,7 +7,8 @@ import { loadSettings, savePos, saveSettings, type Align } from "../lib/storage"
 import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from "../lib/premium";
 import { tick, thump } from "../lib/haptics";
 import { trackSeconds, trackWords } from "../lib/stats";
-import { buildShareUrl } from "../lib/share";
+import { encodeSharePayload, longShareUrl, shortShareUrl } from "../lib/share";
+import { createShortLink, shortLinksEnabled } from "../lib/shortlink";
 import Paywall from "./Paywall";
 import Rsvp from "./Rsvp";
 
@@ -371,30 +372,50 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
 
   useEffect(() => saveSettings({ shareName }), [shareName]);
 
-  const makeShareUrl = (): string | null => {
-    const url = buildShareUrl(doc.title, lines, {
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+
+  // Önce kısa link dener (Supabase yapılandırılmışsa); olmazsa uzun linke düşer.
+  const makeShareUrl = async (): Promise<string | null> => {
+    const payload = encodeSharePayload(doc.title, lines, {
       sender: shareName.trim() || undefined,
       note: shareNote.trim() || undefined,
     });
-    if (!url) showToast("Bu belge paylaşmak için çok büyük ya da metin içermiyor.");
-    return url;
+    if (!payload) {
+      showToast("Bu belge paylaşmak için çok büyük ya da metin içermiyor.");
+      return null;
+    }
+    if (shortLinksEnabled()) {
+      try {
+        const id = await createShortLink(payload);
+        return shortShareUrl(id);
+      } catch {
+        // kısa link servisi ulaşılamazsa uzun linkle devam et
+      }
+    }
+    return longShareUrl(payload);
   };
 
-  const copyShare = () => {
-    const url = makeShareUrl();
+  const copyShare = async () => {
+    setSharing(true);
+    const url = await makeShareUrl();
+    setSharing(false);
     if (!url) return;
-    navigator.clipboard
-      ?.writeText(url)
-      .then(() => {
-        setPanel("none");
-        showToast("Okuma linki kopyalandı 🔗 Artık birine atabilirsin!");
-      })
-      .catch(() => showToast("Link kopyalanamadı."));
+    setShareUrl(url);
+    try {
+      await navigator.clipboard?.writeText(url);
+      showToast("Okuma linki kopyalandı 🔗 Artık birine atabilirsin!");
+    } catch {
+      showToast("Kopyalanamadı — linki aşağıdaki kutudan seçip kopyala.");
+    }
   };
 
-  const nativeShare = () => {
-    const url = makeShareUrl();
+  const nativeShare = async () => {
+    setSharing(true);
+    const url = await makeShareUrl();
+    setSharing(false);
     if (!url) return;
+    setShareUrl(url);
     const who = shareName.trim();
     navigator
       .share({
@@ -562,15 +583,27 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             onChange={(e) => setShareNote(e.target.value)}
           />
           <div className="chips">
-            <button className="chip" onClick={copyShare}>
-              📋 Linki kopyala
+            <button className="chip" disabled={sharing} onClick={() => void copyShare()}>
+              {sharing ? "⏳ Hazırlanıyor…" : "📋 Linki kopyala"}
             </button>
             {"share" in navigator && (
-              <button className="chip chip--on" onClick={nativeShare}>
+              <button
+                className="chip chip--on"
+                disabled={sharing}
+                onClick={() => void nativeShare()}
+              >
                 📤 Paylaş…
               </button>
             )}
           </div>
+          {shareUrl && (
+            <input
+              className="panel__input panel__link"
+              readOnly
+              value={shareUrl}
+              onFocus={(e) => e.target.select()}
+            />
+          )}
           <p className="panel__hint">
             Linki açan kişi, notunla birlikte aynı okuma ekranını görür.
           </p>

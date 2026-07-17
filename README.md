@@ -65,6 +65,36 @@ Uygulama tamamen statik bir Vite sitesidir; backend gerektirmez.
    (`start` script'i `vite preview` ile `dist` klasörünü `$PORT` üzerinden servis eder).
 3. Ayar gerekmez.
 
+## Kısa Paylaşım Linkleri (isteğe bağlı, ücretsiz)
+
+Varsayılan olarak paylaşım linkleri metni URL'in içinde taşır (uzun ama sunucusuz).
+Kısa linkler (`site.com/#s=Ab3kZ9Qw`) için ücretsiz bir [Supabase](https://supabase.com)
+projesi yeterlidir:
+
+1. supabase.com'da proje aç → SQL Editor'de şunu çalıştır:
+
+   ```sql
+   create table public.shares (
+     id text primary key,
+     payload text not null check (length(payload) < 200000),
+     created_at timestamptz default now()
+   );
+   alter table public.shares enable row level security;
+   create policy "anon insert" on public.shares for insert with check (true);
+   create policy "anon read" on public.shares for select using (true);
+   ```
+
+2. Project Settings → API'den URL ve anon anahtarını al; dağıtım ortamına ekle
+   (Vercel/Railway ortam değişkenleri):
+
+   ```
+   VITE_SUPABASE_URL=https://xxxx.supabase.co
+   VITE_SUPABASE_ANON_KEY=eyJ...
+   ```
+
+3. Yeniden deploy et. Değişkenler yoksa ya da servis ulaşılamazsa uygulama
+   kendiliğinden uzun linke döner — paylaşım asla bozulmaz.
+
 ## Gelir Modeli (Freemium)
 
 - Günde **20 dk ücretsiz** okuma (`src/lib/premium.ts` → `FREE_SECONDS_PER_DAY`).

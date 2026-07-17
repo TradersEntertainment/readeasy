@@ -29,7 +29,7 @@ const ALIGNMENTS: { id: Align; name: string }[] = [
 const STYLE_WINDOW = 14; // aktif satırın etrafında stillenecek satır sayısı
 const READING_CPS = 16; // kalan süre tahmini için ortalama karakter/saniye
 
-type Panel = "none" | "sound" | "theme";
+type Panel = "none" | "sound" | "theme" | "share";
 
 // Bionic okuma: her kelimenin ilk ~%40'ı kalın — göz kelimeyi yarım
 // görüp beynin tamamlamasına izin verir, odaklanmayı kolaylaştırır.
@@ -77,6 +77,8 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const rsvpRef = useRef(false);
   rsvpRef.current = rsvp;
   const [toast, setToast] = useState<string | null>(null);
+  const [shareName, setShareName] = useState(settings.shareName);
+  const [shareNote, setShareNote] = useState("");
   const premium = useRef(isPremium()).current;
   const [remaining, setRemaining] = useState(() => remainingSeconds());
   const [paywall, setPaywall] = useState(() => !premium && remainingSeconds() <= 0);
@@ -367,16 +369,45 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     return () => clearInterval(timer);
   }, [premium]);
 
-  const share = () => {
-    const url = buildShareUrl(doc.title, lines);
-    if (!url) {
-      showToast("Bu belge paylaşmak için çok büyük ya da metin içermiyor.");
-      return;
-    }
+  useEffect(() => saveSettings({ shareName }), [shareName]);
+
+  const makeShareUrl = (): string | null => {
+    const url = buildShareUrl(doc.title, lines, {
+      sender: shareName.trim() || undefined,
+      note: shareNote.trim() || undefined,
+    });
+    if (!url) showToast("Bu belge paylaşmak için çok büyük ya da metin içermiyor.");
+    return url;
+  };
+
+  const copyShare = () => {
+    const url = makeShareUrl();
+    if (!url) return;
     navigator.clipboard
       ?.writeText(url)
-      .then(() => showToast("Okuma linki kopyalandı 🔗"))
+      .then(() => {
+        setPanel("none");
+        showToast("Okuma linki kopyalandı 🔗 Artık birine atabilirsin!");
+      })
       .catch(() => showToast("Link kopyalanamadı."));
+  };
+
+  const nativeShare = () => {
+    const url = makeShareUrl();
+    if (!url) return;
+    const who = shareName.trim();
+    navigator
+      .share({
+        title: doc.title,
+        text: who
+          ? `${who} sana bir okuma gönderdi: ${doc.title}`
+          : `Sana bir okuma gönderildi: ${doc.title}`,
+        url,
+      })
+      .then(() => setPanel("none"))
+      .catch(() => {
+        // kullanıcı vazgeçti ya da desteklenmiyor — sessizce geç
+      });
   };
 
   const toastTimer = useRef(0);
@@ -477,7 +508,11 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         <button className="iconBtn" onClick={onExit} title="Kapat (Esc)">
           ✕
         </button>
-        <button className="iconBtn" onClick={share} title="Okuma linki paylaş">
+        <button
+          className="iconBtn"
+          onClick={() => setPanel((p) => (p === "share" ? "none" : "share"))}
+          title="Birine gönder"
+        >
           🔗
         </button>
         <span className="reader__title">{doc.title}</span>
@@ -507,6 +542,40 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
           {renderedLines}
         </div>
       </div>
+
+      {panel === "share" && (
+        <div className="panel">
+          <span className="panel__title">💌 Birine gönder</span>
+          <input
+            className="panel__input"
+            placeholder="Adın (isteğe bağlı)"
+            value={shareName}
+            maxLength={60}
+            onChange={(e) => setShareName(e.target.value)}
+          />
+          <textarea
+            className="panel__input panel__note"
+            placeholder='Kısa bir not — ör. "Al, şunu mutlaka oku 😊"'
+            value={shareNote}
+            maxLength={280}
+            rows={2}
+            onChange={(e) => setShareNote(e.target.value)}
+          />
+          <div className="chips">
+            <button className="chip" onClick={copyShare}>
+              📋 Linki kopyala
+            </button>
+            {"share" in navigator && (
+              <button className="chip chip--on" onClick={nativeShare}>
+                📤 Paylaş…
+              </button>
+            )}
+          </div>
+          <p className="panel__hint">
+            Linki açan kişi, notunla birlikte aynı okuma ekranını görür.
+          </p>
+        </div>
+      )}
 
       {panel === "sound" && (
         <div className="panel">

@@ -577,6 +577,93 @@ button {
   font-weight: 900;
 }
 
+.panel__input {
+  width: 100%;
+  padding: 0.65rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  resize: none;
+  transition: border-color 0.15s ease;
+}
+
+.panel__input:focus {
+  border-color: var(--accent);
+}
+
+.panel__hint {
+  font-size: 0.8rem;
+  color: rgba(var(--ink-rgb), 0.45);
+  line-height: 1.45;
+}
+
+/* ---------- Karşılama kartı (paylaşılan link) ---------- */
+
+.invite {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(var(--shade-rgb), 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.invite__card {
+  width: min(430px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 2rem 1.7rem;
+  border-radius: 26px;
+  text-align: center;
+  background: rgba(var(--shade-rgb), 0.92);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.45),
+    0 0 60px color-mix(in srgb, var(--accent) 18%, transparent);
+  animation: inviteIn 0.4s ease;
+}
+
+@keyframes inviteIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.invite__emoji {
+  font-size: 2.8rem;
+}
+
+.invite__card h2 {
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+}
+
+.invite__note {
+  color: var(--text);
+  font-size: 1.05rem;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.invite__title {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 /* ---------- Bildirim (toast) ---------- */
 
 .toast {

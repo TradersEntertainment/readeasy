@@ -14,6 +14,7 @@ export interface Settings {
   align: Align;
   bionic: boolean;
   rsvpWpm: number;
+  shareName: string;
 }
 
 const SETTINGS_KEY = "readeasy:settings";
@@ -33,6 +34,7 @@ const DEFAULTS: Settings = {
   align: "justify",
   bionic: false,
   rsvpWpm: 320,
+  shareName: "",
 };
 
 export function loadSettings(): Settings {

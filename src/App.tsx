@@ -18,10 +18,17 @@ if (new URLSearchParams(window.location.search).get("premium") === "1") {
 
 export type { Doc };
 
+interface Invite {
+  sender?: string;
+  note?: string;
+  title: string;
+}
+
 export default function App() {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [initialLine, setInitialLine] = useState(0);
   const [theme, setTheme] = useState(() => loadSettings().theme);
+  const [invite, setInvite] = useState<Invite | null>(null);
 
   useEffect(() => {
     applyTheme(theme);
@@ -42,6 +49,11 @@ export default function App() {
     if (shared) {
       window.history.replaceState(null, "", window.location.pathname);
       openBlocks(shared.title, [{ kind: "text", text: shared.text }]);
+      setInvite({
+        sender: shared.sender,
+        note: shared.note,
+        title: shared.title,
+      });
     }
   }, [openBlocks]);
 
@@ -54,13 +66,38 @@ export default function App() {
 
   if (doc) {
     return (
-      <Reader
-        doc={doc}
-        initialLine={initialLine}
-        theme={theme}
-        onThemeChange={setTheme}
-        onExit={() => setDoc(null)}
-      />
+      <>
+        <Reader
+          doc={doc}
+          initialLine={initialLine}
+          theme={theme}
+          onThemeChange={setTheme}
+          onExit={() => {
+            setInvite(null);
+            setDoc(null);
+          }}
+        />
+        {invite && (
+          <div className="invite">
+            <div className="invite__card">
+              <span className="invite__emoji">💌</span>
+              <h2>
+                {invite.sender
+                  ? `${invite.sender} sana bir okuma gönderdi`
+                  : "Sana bir okuma gönderildi"}
+              </h2>
+              {invite.note && <p className="invite__note">“{invite.note}”</p>}
+              <p className="invite__title">{invite.title}</p>
+              <button
+                className="btn btn--primary"
+                onClick={() => setInvite(null)}
+              >
+                Okumaya başla ▶
+              </button>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
   return <Home onOpen={openBlocks} onResume={resume} />;

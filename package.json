@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-tesseract.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-tesseract.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
     "start": "node server.mjs"
@@ -21,7 +23,8 @@
     "mammoth": "^1.8.0",
     "pdfjs-dist": "^4.8.69",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

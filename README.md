@@ -8,6 +8,11 @@ akış ile metin bir şarkı gibi kayar.
 ## Özellikler
 
 - 📄 **PDF, Word (.docx), TXT/MD** dosyası sürükle-bırak veya seç
+- 📷 **Fotoğraftan oku (OCR)**: kitap sayfası, ders notu, tabela… fotoğrafını
+  çek ya da seç; metin **tamamen cihazda** tanınır (Tesseract WASM, Türkçe +
+  İngilizce; dil verisi ve çekirdek kendi sunucumuzdan gelir, CDN yok).
+  Birden çok fotoğraf tek belge olarak birleşir; satır sonu tireleri ve
+  satır kırılmaları otomatik temizlenir
 - 🖼️ **PDF ve Word'deki görseller** akışın içinde kart olarak gösterilir
   (PDF'te sayfanın gömülü görselleri çıkarılır; sayfa metninin ardına eklenir)
 - 📊 **Word tabloları** gerçek tablo olarak akışta yer alır (temizlenmiş HTML;

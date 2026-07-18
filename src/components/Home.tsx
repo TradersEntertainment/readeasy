@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { extractFromFile, type Extracted } from "../lib/extract";
+import { ocrImages } from "../lib/ocr";
 import { listLibrary, removeFromLibrary } from "../lib/storage";
 import { fetchFromUrl } from "../lib/url";
 import { loadStats } from "../lib/stats";
@@ -33,22 +34,44 @@ export default function Home({ onOpen, onResume }: Props) {
   const stats = useMemo(loadStats, []);
   const [library, setLibrary] = useState(() => listLibrary());
   const [busy, setBusy] = useState(false);
+  const [busyMsg, setBusyMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const openFile = useCallback(
-    async (file: File) => {
+  // Dosyaları açar: fotoğraflar cihazda OCR ile metne çevrilir (birden çok
+  // fotoğraf tek belge olur), diğer dosyalar mevcut çıkarıcıdan geçer.
+  const openFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
       setBusy(true);
       setError(null);
       try {
+        const images = files.filter((f) => f.type.startsWith("image/"));
+        if (images.length > 0) {
+          const text = await ocrImages(images, setBusyMsg);
+          if (!text.trim()) {
+            throw new Error(
+              "Fotoğrafta okunabilir metin bulunamadı. Daha net, iyi aydınlatılmış bir kare deneyin.",
+            );
+          }
+          onOpen(
+            images.length > 1
+              ? `Taranan metin (${images.length} sayfa)`
+              : images[0].name.replace(/\.[^.]+$/, ""),
+            [{ kind: "text", text }],
+          );
+          return;
+        }
+        const file = files[0];
         const blocks = await extractFromFile(file);
         const hasContent = blocks.some(
           (b) => b.kind !== "text" || b.text.trim(),
         );
         if (!hasContent) {
           throw new Error(
-            "Dosyadan içerik çıkarılamadı. (Taranmış/görüntü PDF'lerde metin katmanı bulunmaz.)",
+            "Dosyadan içerik çıkarılamadı. (Taranmış/görüntü PDF'lerde metin katmanı bulunmaz — sayfanın fotoğrafını çekip 📷 ile deneyin.)",
           );
         }
         onOpen(file.name.replace(/\.[^.]+$/, ""), blocks);
@@ -56,6 +79,7 @@ export default function Home({ onOpen, onResume }: Props) {
         setError(e instanceof Error ? e.message : "Dosya okunamadı.");
       } finally {
         setBusy(false);
+        setBusyMsg(null);
       }
     },
     [onOpen],
@@ -79,10 +103,10 @@ export default function Home({ onOpen, onResume }: Props) {
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const file = e.dataTransfer.files?.[0];
-      if (file) void openFile(file);
+      const files = Array.from(e.dataTransfer.files ?? []);
+      if (files.length) void openFiles(files);
     },
-    [openFile],
+    [openFiles],
   );
 
   return (
@@ -201,7 +225,15 @@ export default function Home({ onOpen, onResume }: Props) {
             disabled={busy}
             onClick={() => fileInputRef.current?.click()}
           >
-            {busy ? "Dosya işleniyor…" : "Dosya seç (PDF · DOCX · TXT)"}
+            {busy ? (busyMsg ?? "Dosya işleniyor…") : "Dosya seç (PDF · DOCX · TXT)"}
+          </button>
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() => cameraInputRef.current?.click()}
+            title="Fotoğraf çek veya seç — metin cihazında tanınır"
+          >
+            📷 Fotoğraftan oku
           </button>
           <button
             className="btn btn--ghost"
@@ -215,18 +247,34 @@ export default function Home({ onOpen, onResume }: Props) {
         {error && <p className="home__error">{error}</p>}
 
         <p className="home__hint">
-          Dosyanı bu sayfanın herhangi bir yerine sürükleyip bırakabilirsin.
-          Her şey tarayıcında işlenir; dosyaların hiçbir sunucuya gönderilmez.
+          Dosya ya da fotoğrafları bu sayfanın herhangi bir yerine sürükleyip
+          bırakabilirsin; birden çok fotoğraf tek belge olarak birleşir.
+          Dosyalar ve fotoğraflar cihazında işlenir, hiçbir sunucuya
+          gönderilmez.
         </p>
 
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.txt,.md,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          multiple
+          accept=".pdf,.docx,.txt,.md,image/*,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           hidden
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void openFile(file);
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) void openFiles(files);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) void openFiles(files);
             e.target.value = "";
           }}
         />

@@ -187,7 +187,7 @@ export default function Home({ onOpen, onResume }: Props) {
           <input
             className="home__url"
             type="url"
-            placeholder="🔗 Link yapıştır — makale, ChatGPT/Claude sohbet paylaşımı…"
+            placeholder="🔗 Link yapıştır — makale, blog, X gönderisi, AI sohbeti…"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {

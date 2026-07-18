@@ -84,6 +84,11 @@ paylaşımları diske kaydeder (`POST /api/shares`). Railway'de:
 2. Servise bir **Volume** ekleyin, **mount path: `/data`** yazın. Hepsi bu;
    ortam değişkeni gerekmez. (Volume olmazsa paylaşımlar deploy'da silinir.)
 
+> Vercel'de de statik bir kopya tutuyorsanız, oradan yapılan paylaşımların da
+> kısa olması için Vercel ortam değişkenlerine Railway adresinizi ekleyin ve
+> redeploy edin:
+> `VITE_SHARE_API_URL=https://readeasy.up.railway.app`
+
 ### Yol B — Supabase (Vercel gibi statik barındırma için)
 
 1. supabase.com'da proje aç → SQL Editor'de şunu çalıştır:

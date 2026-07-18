@@ -10,6 +10,11 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Statik barındırmada (ör. Vercel) başka bir ReadEasy sunucusunun API'si
+// kullanılabilir: VITE_SHARE_API_URL=https://readeasy.up.railway.app
+// Boşsa aynı origin denenir (Railway'de sunucu zaten oradadır).
+const API_BASE = (import.meta.env.VITE_SHARE_API_URL ?? "").replace(/\/+$/, "");
+
 const ID_PATTERN = /^[A-Za-z0-9]{6,16}$/;
 const ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -21,7 +26,7 @@ function isJson(res: Response): boolean {
 // ---------- 1. yol: aynı origin'deki ReadEasy sunucusu ----------
 
 async function apiCreate(payload: string): Promise<string> {
-  const res = await fetch("/api/shares", {
+  const res = await fetch(`${API_BASE}/api/shares`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ payload }),
@@ -37,7 +42,7 @@ async function apiCreate(payload: string): Promise<string> {
 
 async function apiFetch(id: string): Promise<string | null> {
   try {
-    const res = await fetch(`/api/shares/${id}`);
+    const res = await fetch(`${API_BASE}/api/shares/${id}`);
     if (!res.ok || !isJson(res)) return null;
     const { payload } = (await res.json()) as { payload?: string };
     return typeof payload === "string" && payload ? payload : null;

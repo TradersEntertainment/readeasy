@@ -229,12 +229,102 @@ button {
   background: transparent;
 }
 
-.btn--resume {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+/* ---------- Kitaplık ---------- */
+
+.library {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  text-align: left;
+}
+
+.library__heading {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.libCard {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 16px;
+  cursor: pointer;
+  background: rgba(var(--ink-rgb), 0.05);
+  border: 1px solid rgba(var(--ink-rgb), 0.1);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.libCard:hover {
+  background: rgba(var(--ink-rgb), 0.1);
+  transform: translateY(-1px);
+}
+
+.libCard__cover {
+  width: 2.6rem;
+  height: 3.3rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.libCard__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.libCard__name {
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.libCard__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.libCard__bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(var(--ink-rgb), 0.12);
+  overflow: hidden;
+}
+
+.libCard__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.libCard__delete {
+  flex-shrink: 0;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.libCard__delete:hover {
+  background: rgba(var(--ink-rgb), 0.14);
+  color: var(--text);
 }
 
 .home__error {

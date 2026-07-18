@@ -3,14 +3,14 @@ import { lineChars, type Doc } from "../lib/doc";
 import { cancel as ttsCancel, speak as ttsSpeak, ttsAvailable } from "../lib/tts";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
-import { loadSettings, savePos, saveSettings, type Align } from "../lib/storage";
+import { loadSettings, saveSettings, updateProgress, type Align } from "../lib/storage";
 import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from "../lib/premium";
 import { tick, thump } from "../lib/haptics";
 import { trackSeconds, trackWords } from "../lib/stats";
 import { encodeSharePayload, longShareUrl, shortShareUrl } from "../lib/share";
 import { createShortLink } from "../lib/shortlink";
 import { describeScene, generateImage, planSegments } from "../lib/storify";
-import { saveDoc } from "../lib/storage";
+import { saveDocToLibrary } from "../lib/storage";
 import Paywall from "./Paywall";
 import Rsvp from "./Rsvp";
 
@@ -314,7 +314,10 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   useEffect(() => saveSettings({ speedIdx }), [speedIdx]);
   useEffect(() => saveSettings({ align }), [align]);
   useEffect(() => saveSettings({ bionic }), [bionic]);
-  useEffect(() => savePos(active), [active]);
+  useEffect(
+    () => updateProgress(doc.id, active, lines.length),
+    [doc.id, active, lines.length],
+  );
 
   // İstatistik: ileri gidilen satırların kelimeleri.
   const prevActiveRef = useRef(initialLine);
@@ -401,6 +404,9 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     const insertedPlanIdx = new Set<number>();
     let done = 0;
     let inserted = 0;
+    // Yetkili kopya: setLines asenkron olduğu için kayıt anında state geride
+    // kalabilir; eklemeleri kendi dizimizde de uygulayıp sonunda onu kaydederiz.
+    let working = linesLiveRef.current;
 
     const runOne = async (k: number) => {
       // bir kez otomatik yeniden dene (geçici hız limitlerine karşı)
@@ -419,11 +425,10 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
           }
           insertedPlanIdx.add(k);
           const insertAt = plan[k].afterIndex + 1 + shift;
-          setLines((prev) => {
-            const next = prev.slice();
-            next.splice(insertAt, 0, { kind: "image", src });
-            return next;
-          });
+          const next = working.slice();
+          next.splice(insertAt, 0, { kind: "image", src });
+          working = next;
+          setLines(next);
           inserted++;
           return;
         } catch {
@@ -443,8 +448,8 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
 
     setStorify(null);
     if (inserted > 0) {
-      saveDoc({ title: doc.title, lines: linesLiveRef.current });
-      savePos(activeRef.current);
+      saveDocToLibrary({ id: doc.id, title: doc.title, lines: working });
+      updateProgress(doc.id, activeRef.current, working.length);
       showToast(`✨ ${inserted} görsel hikayene eklendi`);
     } else if (!storifyCancelled.current) {
       showToast("Görsel üretilemedi — biraz sonra tekrar dene.");

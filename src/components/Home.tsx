@@ -1,12 +1,19 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { extractFromFile, type Extracted } from "../lib/extract";
-import { loadDoc, loadPos } from "../lib/storage";
+import { listLibrary, removeFromLibrary } from "../lib/storage";
 import { fetchFromUrl } from "../lib/url";
 import { loadStats } from "../lib/stats";
 
 interface Props {
   onOpen: (title: string, blocks: Extracted[]) => void;
-  onResume: () => void;
+  onResume: (id: string) => void;
+}
+
+// Başlıktan deterministik bir kapak degrade'si üret.
+function coverGradient(title: string): string {
+  let hash = 0;
+  for (const ch of title) hash = (hash * 31 + ch.codePointAt(0)!) % 360;
+  return `linear-gradient(135deg, hsl(${hash} 65% 52%), hsl(${(hash + 50) % 360} 70% 40%))`;
 }
 
 const SAMPLE_TITLE = "ReadEasy'e hoş geldin";
@@ -24,16 +31,7 @@ export default function Home({ onOpen, onResume }: Props) {
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const stats = useMemo(loadStats, []);
-  const stored = useMemo(() => {
-    const doc = loadDoc();
-    if (!doc) return null;
-    const pos = Math.min(loadPos(), doc.lines.length - 1);
-    if (pos < 1) return null; // henüz okumaya başlanmamış
-    return {
-      title: doc.title,
-      percent: Math.round((pos / (doc.lines.length - 1)) * 100),
-    };
-  }, []);
+  const [library, setLibrary] = useState(() => listLibrary());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -114,10 +112,51 @@ export default function Home({ onOpen, onResume }: Props) {
           </p>
         )}
 
-        {stored && (
-          <button className="btn btn--resume" onClick={onResume}>
-            ⏯ Kaldığın yerden devam et — {stored.title} (%{stored.percent})
-          </button>
+        {library.length > 0 && (
+          <div className="library">
+            <span className="library__heading">📚 Kitaplığın</span>
+            {library.map((entry) => {
+              const percent =
+                entry.total > 1
+                  ? Math.round((entry.pos / (entry.total - 1)) * 100)
+                  : 100;
+              return (
+                <div
+                  key={entry.id}
+                  className="libCard"
+                  onClick={() => onResume(entry.id)}
+                >
+                  <div
+                    className="libCard__cover"
+                    style={{ background: coverGradient(entry.title) }}
+                  />
+                  <div className="libCard__info">
+                    <span className="libCard__name">{entry.title}</span>
+                    <div className="libCard__meta">
+                      <div className="libCard__bar">
+                        <div
+                          className="libCard__fill"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <span>%{percent}</span>
+                    </div>
+                  </div>
+                  <button
+                    className="libCard__delete"
+                    title="Kitaplıktan kaldır"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFromLibrary(entry.id);
+                      setLibrary(listLibrary());
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         )}
 
         <div className="home__urlRow">

@@ -10,8 +10,19 @@ export type Line =
   | { kind: "table"; html: string };
 
 export interface Doc {
+  id: string;
   title: string;
   lines: Line[];
+}
+
+export function newDocId(): string {
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let id = "";
+  for (const b of bytes) id += alphabet[b % alphabet.length];
+  return id;
 }
 
 export function blocksToLines(blocks: Extracted[]): Line[] {

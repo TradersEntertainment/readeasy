@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Home from "./components/Home";
 import Reader from "./components/Reader";
-import { blocksToLines, type Doc, type Line } from "./lib/doc";
+import { blocksToLines, newDocId, type Doc, type Line } from "./lib/doc";
 import type { Extracted } from "./lib/extract";
 import { applyTheme } from "./lib/themes";
-import { loadDoc, loadPos, loadSettings, saveDoc, saveSettings } from "./lib/storage";
+import {
+  listLibrary,
+  loadDocFromLibrary,
+  loadSettings,
+  saveDocToLibrary,
+  saveSettings,
+} from "./lib/storage";
 import { setPremium } from "./lib/premium";
 import { decodeSharePayload, parseShareHash, parseShortHashId, type SharedDoc } from "./lib/share";
 import { fetchShortLink } from "./lib/shortlink";
@@ -38,9 +44,10 @@ export default function App() {
 
   const openLines = useCallback((title: string, lines: Line[]) => {
     if (lines.length === 0) return;
-    saveDoc({ title, lines });
+    const newDoc: Doc = { id: newDocId(), title, lines };
+    saveDocToLibrary(newDoc);
     setInitialLine(0);
-    setDoc({ title, lines });
+    setDoc(newDoc);
   }, []);
 
   const openBlocks = useCallback(
@@ -81,10 +88,11 @@ export default function App() {
     }
   }, [openLines]);
 
-  const resume = useCallback(() => {
-    const stored = loadDoc();
+  const resume = useCallback((id: string) => {
+    const stored = loadDocFromLibrary(id);
     if (!stored) return;
-    setInitialLine(Math.min(loadPos(), stored.lines.length - 1));
+    const entry = listLibrary().find((e) => e.id === id);
+    setInitialLine(Math.min(entry?.pos ?? 0, stored.lines.length - 1));
     setDoc(stored);
   }, []);
 

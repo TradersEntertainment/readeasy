@@ -9,6 +9,8 @@ import { tick, thump } from "../lib/haptics";
 import { trackSeconds, trackWords } from "../lib/stats";
 import { encodeSharePayload, longShareUrl, shortShareUrl } from "../lib/share";
 import { createShortLink, shortLinksEnabled } from "../lib/shortlink";
+import { describeScene, generateImage, planSegments } from "../lib/storify";
+import { saveDoc } from "../lib/storage";
 import Paywall from "./Paywall";
 import Rsvp from "./Rsvp";
 
@@ -49,7 +51,12 @@ function bionicWords(text: string) {
 }
 
 export default function Reader({ doc, initialLine, theme, onThemeChange, onExit }: Props) {
-  const { lines } = doc;
+  // Satırlar yerel state'tir: "Hikayeleştir" üretilen görselleri akışa
+  // canlı olarak ekler.
+  const [lines, setLines] = useState(doc.lines);
+  useEffect(() => setLines(doc.lines), [doc]);
+  const linesLiveRef = useRef(lines);
+  linesLiveRef.current = lines;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const linesRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLElement | null)[]>([]);
@@ -374,6 +381,50 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [storify, setStorify] = useState<{ done: number; total: number } | null>(null);
+  const storifyCancelled = useRef(false);
+
+  // 🪄 Hikayeleştir: bölümler için AI görseli üret, hazır olan her görseli
+  // akışa hemen serpiştir. Okuma bu sırada devam edebilir.
+  const runStorify = async () => {
+    if (storify) return;
+    const plan = planSegments(linesLiveRef.current);
+    if (plan.length === 0) {
+      showToast("Görselleştirmek için yeterli metin yok.");
+      return;
+    }
+    storifyCancelled.current = false;
+    setStorify({ done: 0, total: plan.length });
+    showToast("🪄 Görseller üretiliyor — okumaya devam edebilirsin");
+    let inserted = 0;
+    for (let k = 0; k < plan.length; k++) {
+      if (storifyCancelled.current) break;
+      try {
+        const scene = await describeScene(plan[k].excerpt);
+        if (storifyCancelled.current) break;
+        const src = await generateImage(scene);
+        if (storifyCancelled.current) break;
+        const insertAt = plan[k].afterIndex + 1 + inserted;
+        setLines((prev) => {
+          const next = prev.slice();
+          next.splice(insertAt, 0, { kind: "image", src });
+          return next;
+        });
+        inserted++;
+      } catch {
+        // bu bölümün görseli olmadı → hikaye metniyle devam
+      }
+      setStorify({ done: k + 1, total: plan.length });
+    }
+    setStorify(null);
+    if (inserted > 0) {
+      saveDoc({ title: doc.title, lines: linesLiveRef.current });
+      savePos(activeRef.current);
+      showToast(`✨ ${inserted} görsel hikayene eklendi`);
+    } else if (!storifyCancelled.current) {
+      showToast("Görsel üretilemedi — biraz sonra tekrar dene.");
+    }
+  };
 
   // Önce kısa link dener (Supabase yapılandırılmışsa); olmazsa uzun linke düşer.
   const makeShareUrl = async (): Promise<string | null> => {
@@ -680,6 +731,22 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
 
       {toast && <div className="toast">{toast}</div>}
 
+      {storify && (
+        <div className="storifyPill">
+          <span className="storifyPill__spinner" />
+          Görsel {storify.done}/{storify.total} üretiliyor…
+          <button
+            className="storifyPill__cancel"
+            onClick={() => {
+              storifyCancelled.current = true;
+            }}
+            title="İptal"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {rsvp && (
         <Rsvp
           lines={lines}
@@ -750,6 +817,19 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             title="Hız modu — kelime kelime (RSVP)"
           >
             ⚡
+          </button>
+        )}
+        {hasText && (
+          <button
+            className={`iconBtn ${storify ? "iconBtn--live" : ""}`}
+            disabled={Boolean(storify)}
+            onClick={() => {
+              thump();
+              void runStorify();
+            }}
+            title="Hikayeleştir — AI görselleriyle süsle"
+          >
+            🪄
           </button>
         )}
         <button

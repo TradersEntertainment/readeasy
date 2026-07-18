@@ -26,6 +26,10 @@ akış ile metin bir şarkı gibi kayar.
 - 📤 **Okuma linki paylaş**: metin sıkıştırılıp URL'e gömülür; linki açan
   aynı kayışı görür (sunucusuz, ~60K karaktere kadar)
 - 🔥 **İstatistikler**: gün serisi (streak), toplam okuma süresi, kelime sayısı
+- 🪄 **Hikayeleştir**: metin bölümlere ayrılır, her bölüm için AI görseli
+  üretilip akışa serpiştirilir (ücretsiz [pollinations.ai](https://pollinations.ai);
+  önce bölüm AI ile sahne tarifine çevrilir, sonra görsel üretilir; üretim
+  arka planda sürer, okumaya devam edilebilir, iptal edilebilir)
 - 🎤 Apple Music tarzı satır kayışı: aktif satır parlak, diğerleri soluk ve hafif bulanık
 - ✂️ **Cümle temelli akış**: kaydırma yalnızca cümle sonlarında olur, cümleler asla
   ortadan bölünmez ("19. yüzyıl" gibi kalıplar ve kısaltmalar korunur)

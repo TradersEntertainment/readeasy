@@ -12,7 +12,13 @@ import {
   saveSettings,
 } from "./lib/storage";
 import { setPremium } from "./lib/premium";
-import { decodeSharePayload, parseShareHash, parseShortHashId, type SharedDoc } from "./lib/share";
+import {
+  decodeSharePayload,
+  parsePathShareId,
+  parseShareHash,
+  parseShortHashId,
+  type SharedDoc,
+} from "./lib/share";
 import { fetchShortLink } from "./lib/shortlink";
 
 // Ödeme sağlayıcısının başarı yönlendirmesi (ör. Stripe success_url →
@@ -61,7 +67,7 @@ export default function App() {
   // #d=... → içerik URL'de (senkron), #s=... → içerik sunucuda (async).
   useEffect(() => {
     const openShared = (shared: SharedDoc) => {
-      window.history.replaceState(null, "", window.location.pathname);
+      window.history.replaceState(null, "", "/");
       openLines(shared.title, shared.lines);
       setInvite({
         sender: shared.sender,
@@ -75,13 +81,13 @@ export default function App() {
       openShared(shared);
       return;
     }
-    const shortId = parseShortHashId();
+    const shortId = parseShortHashId() ?? parsePathShareId();
     if (shortId) {
       void fetchShortLink(shortId).then((payload) => {
         const doc = payload && decodeSharePayload(payload);
         if (doc) openShared(doc);
         else {
-          window.history.replaceState(null, "", window.location.pathname);
+          window.history.replaceState(null, "", "/");
           console.warn("Kısa paylaşım linki çözülemedi:", shortId);
         }
       });

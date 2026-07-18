@@ -23,13 +23,26 @@ function isJson(res: Response): boolean {
   return (res.headers.get("content-type") ?? "").includes("json");
 }
 
+export interface ShareMeta {
+  title?: string;
+  sender?: string;
+  note?: string;
+}
+
+export interface CreatedShortLink {
+  id: string;
+  // Aynı origin'deki ReadEasy sunucusuna kaydedildiyse /s/:id biçimli
+  // (OG önizlemeli) link kullanılabilir.
+  sameOriginServer: boolean;
+}
+
 // ---------- 1. yol: aynı origin'deki ReadEasy sunucusu ----------
 
-async function apiCreate(payload: string): Promise<string> {
+async function apiCreate(payload: string, meta: ShareMeta): Promise<string> {
   const res = await fetch(`${API_BASE}/api/shares`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ payload }),
+    body: JSON.stringify({ payload, ...meta }),
   });
   // Statik barındırmada bu yol index.html/404 döndürür — JSON değilse yok say
   if (!res.ok || !isJson(res)) throw new Error(`api ${res.status}`);
@@ -100,13 +113,19 @@ async function supabaseFetch(id: string): Promise<string | null> {
 
 // ---------- dış arayüz ----------
 
-export async function createShortLink(payload: string): Promise<string> {
+export async function createShortLink(
+  payload: string,
+  meta: ShareMeta = {},
+): Promise<CreatedShortLink> {
   try {
-    return await apiCreate(payload);
+    const id = await apiCreate(payload, meta);
+    return { id, sameOriginServer: API_BASE === "" };
   } catch {
     // aynı origin'de sunucu yok → Supabase'e bak
   }
-  if (supabaseEnabled()) return supabaseCreate(payload);
+  if (supabaseEnabled()) {
+    return { id: await supabaseCreate(payload), sameOriginServer: false };
+  }
   throw new Error("Kısa link servisi bulunamadı");
 }
 

@@ -7,7 +7,7 @@ import { loadSettings, saveSettings, updateProgress, type Align } from "../lib/s
 import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from "../lib/premium";
 import { tick, thump } from "../lib/haptics";
 import { trackSeconds, trackWords } from "../lib/stats";
-import { encodeSharePayload, longShareUrl, shortShareUrl } from "../lib/share";
+import { encodeSharePayload, longShareUrl, pathShareUrl, shortShareUrl } from "../lib/share";
 import { createShortLink } from "../lib/shortlink";
 import { describeScene, generateImage, planSegments } from "../lib/storify";
 import { saveDocToLibrary } from "../lib/storage";
@@ -477,8 +477,17 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     if (!payload) payload = encodeSharePayload(doc.title, current, opts, false);
     if (payload) {
       try {
-        const id = await createShortLink(payload);
-        return { url: shortShareUrl(id), mediaDropped: hasMedia && !richSent };
+        const created = await createShortLink(payload, {
+          title: doc.title,
+          sender: opts.sender,
+          note: opts.note,
+        });
+        return {
+          url: created.sameOriginServer
+            ? pathShareUrl(created.id)
+            : shortShareUrl(created.id),
+          mediaDropped: hasMedia && !richSent,
+        };
       } catch {
         // kısa link servisi ulaşılamazsa uzun linkle devam et
       }

@@ -7,8 +7,10 @@
 //      ama kalıcılık için volume şarttır — volume'suz dosyalar deploy'da silinir.)
 //
 // API:
-//   POST /api/shares          {payload} → {id}
+//   POST /api/shares          {payload, title?, sender?, note?} → {id}
 //   GET  /api/shares/:id      → {payload}
+//   GET  /s/:id               → OG önizleme etiketleri gömülü uygulama sayfası
+//                               (WhatsApp/iMessage linki zengin gösterir)
 //   GET  /api/health          → ok
 
 import http from "node:http";
@@ -112,37 +114,91 @@ async function handleApi(req, res, url) {
       }
       chunks.push(chunk);
     }
-    let payload;
+    let body;
     try {
-      payload = JSON.parse(Buffer.concat(chunks).toString("utf8")).payload;
+      body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     } catch {
       return sendJson(res, 400, { error: "bad_json" });
     }
+    const { payload } = body;
     if (typeof payload !== "string" || !payload.trim()) {
       return sendJson(res, 400, { error: "bad_payload" });
     }
+    const record = {
+      payload,
+      title: typeof body.title === "string" ? body.title.slice(0, 120) : "",
+      sender: typeof body.sender === "string" ? body.sender.slice(0, 60) : "",
+      note: typeof body.note === "string" ? body.note.slice(0, 280) : "",
+    };
     const id = newId();
-    await fs.writeFile(path.join(dataDir, id), payload, "utf8");
+    await fs.writeFile(path.join(dataDir, id), JSON.stringify(record), "utf8");
     return sendJson(res, 201, { id });
   }
 
   const shareMatch = url.pathname.match(/^\/api\/shares\/([A-Za-z0-9]{6,16})$/);
   if (shareMatch && req.method === "GET") {
-    if (!ID_PATTERN.test(shareMatch[1])) {
-      return sendJson(res, 400, { error: "bad_id" });
-    }
-    try {
-      const payload = await fs.readFile(
-        path.join(dataDir, shareMatch[1]),
-        "utf8",
-      );
-      return sendJson(res, 200, { payload });
-    } catch {
-      return sendJson(res, 404, { error: "not_found" });
-    }
+    const record = await readShare(shareMatch[1]);
+    if (!record) return sendJson(res, 404, { error: "not_found" });
+    return sendJson(res, 200, { payload: record.payload });
   }
 
   return sendJson(res, 404, { error: "not_found" });
+}
+
+// Kayıt hem yeni (JSON) hem eski (düz payload metni) biçimde okunabilir.
+async function readShare(id) {
+  if (!ID_PATTERN.test(id)) return null;
+  try {
+    const raw = await fs.readFile(path.join(dataDir, id), "utf8");
+    try {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj.payload === "string") return obj;
+    } catch {
+      // eski biçim: dosyanın tamamı payload
+    }
+    return { payload: raw, title: "", sender: "", note: "" };
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtml(text) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+// /s/:id — uygulamayı, linkin içeriğine özel Open Graph etiketleriyle sunar.
+// WhatsApp, iMessage, Twitter vb. bu etiketlerden zengin önizleme üretir.
+async function serveSharePage(res, id) {
+  const record = await readShare(id);
+  let html = await fs.readFile(path.join(DIST, "index.html"), "utf8");
+  if (record) {
+    const title = record.title || "Sana bir okuma gönderildi";
+    const description = record.sender
+      ? `💌 ${record.sender} sana bir okuma gönderdi${record.note ? ` — “${record.note}”` : ""}`
+      : `💌 Sana bir okuma gönderildi${record.note ? ` — “${record.note}”` : ""}. Şarkı sözü gibi akıcı oku.`;
+    const meta = [
+      `<meta property="og:title" content="${escapeHtml(title)}" />`,
+      `<meta property="og:description" content="${escapeHtml(description)}" />`,
+      `<meta property="og:type" content="article" />`,
+      `<meta property="og:site_name" content="ReadEasy" />`,
+      `<meta name="twitter:card" content="summary" />`,
+      `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
+      `<meta name="twitter:description" content="${escapeHtml(description)}" />`,
+    ].join("\n    ");
+    html = html
+      .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(title)} — ReadEasy</title>`)
+      .replace("</head>", `    ${meta}\n  </head>`);
+  }
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-cache",
+  });
+  res.end(html);
 }
 
 async function serveStatic(res, urlPath) {
@@ -175,8 +231,11 @@ http
   .createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
+      const sharePage = url.pathname.match(/^\/s\/([A-Za-z0-9]{6,16})$/);
       if (url.pathname.startsWith("/api/")) {
         await handleApi(req, res, url);
+      } else if (sharePage && req.method === "GET") {
+        await serveSharePage(res, sharePage[1]);
       } else {
         await serveStatic(res, url.pathname);
       }

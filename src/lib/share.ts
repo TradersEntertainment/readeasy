@@ -119,7 +119,18 @@ export function longShareUrl(payload: string): string {
 }
 
 export function shortShareUrl(id: string): string {
-  return `${location.origin}${location.pathname}#s=${id}`;
+  return `${location.origin}/#s=${id}`;
+}
+
+// Aynı origin'de ReadEasy sunucusu varken tercih edilen biçim: sunucu bu
+// yolda WhatsApp/iMessage için OG önizleme etiketleri üretir.
+export function pathShareUrl(id: string): string {
+  return `${location.origin}/s/${id}`;
+}
+
+export function parsePathShareId(): string | null {
+  const match = window.location.pathname.match(/^\/s\/([A-Za-z0-9]{6,16})$/);
+  return match ? match[1] : null;
 }
 
 // Uzun link hash'i (#d=...) — senkron çözülür.

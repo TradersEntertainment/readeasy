@@ -754,6 +754,20 @@ button {
   font-size: 0.92rem;
 }
 
+/* ---------- TTS karaoke vurgusu ---------- */
+
+.line__spoken {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 45%, transparent),
+    color-mix(in srgb, var(--accent-2) 45%, transparent)
+  );
+  color: inherit;
+  border-radius: 0.18em;
+  padding: 0 0.06em;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
 /* ---------- Satır notları ---------- */
 
 .line__note {

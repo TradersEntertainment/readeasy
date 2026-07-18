@@ -81,6 +81,8 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const ttsRef = useRef(false);
   ttsRef.current = tts;
   const [bionic, setBionic] = useState(settings.bionic);
+  // Karaoke: TTS'in o an söylediği kelimenin konumu (satır + karakter aralığı)
+  const [ttsWord, setTtsWord] = useState<{ line: number; start: number; end: number } | null>(null);
   const [rsvp, setRsvp] = useState(false);
   const rsvpRef = useRef(false);
   rsvpRef.current = rsvp;
@@ -303,21 +305,38 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   useEffect(() => {
     if (!tts) {
       ttsCancel();
+      setTtsWord(null);
       return;
     }
     const line = lines[active];
     if (line.kind !== "text") {
+      setTtsWord(null);
       const timer = setTimeout(() => {
         if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
         else setTts(false);
       }, 2000);
       return () => clearTimeout(timer);
     }
-    ttsSpeak(line.text, SPEEDS[speedIdx], () => {
-      if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
-      else setTts(false);
-    });
-    return () => ttsCancel();
+    const lineIndex = active;
+    ttsSpeak(
+      line.text,
+      SPEEDS[speedIdx],
+      () => {
+        if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
+        else setTts(false);
+      },
+      (charIndex) => {
+        // söylenen kelimenin sınırlarını bul
+        const rest = line.text.slice(charIndex);
+        const space = rest.search(/\s/);
+        const end = space === -1 ? line.text.length : charIndex + space;
+        if (end > charIndex) setTtsWord({ line: lineIndex, start: charIndex, end });
+      },
+    );
+    return () => {
+      ttsCancel();
+      setTtsWord(null);
+    };
   }, [tts, active, speedIdx, lines, goTo]);
 
   useEffect(() => {
@@ -734,14 +753,29 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             </div>
           );
         }
+        // Karaoke: söylenen kelime vurgulanır (bionic kapalıyken)
+        const spoken =
+          !bionic && ttsWord && ttsWord.line === i ? ttsWord : null;
         return (
           <p key={i} ref={setRef} className="line" onClick={() => goTo(i)} {...noteProps}>
-            {bionic ? bionicWords(line.text) : line.text}
+            {spoken ? (
+              <>
+                {line.text.slice(0, spoken.start)}
+                <mark className="line__spoken">
+                  {line.text.slice(spoken.start, spoken.end)}
+                </mark>
+                {line.text.slice(spoken.end)}
+              </>
+            ) : bionic ? (
+              bionicWords(line.text)
+            ) : (
+              line.text
+            )}
             {marker}
           </p>
         );
       }),
-    [lines, bionic, goTo, notes, openBubble, pressHandlers],
+    [lines, bionic, goTo, notes, openBubble, pressHandlers, ttsWord],
   );
 
   return (

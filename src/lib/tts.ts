@@ -26,7 +26,12 @@ function pickVoice(): SpeechSynthesisVoice | null {
   );
 }
 
-export function speak(text: string, rate: number, onDone: () => void) {
+export function speak(
+  text: string,
+  rate: number,
+  onDone: () => void,
+  onWord?: (charIndex: number) => void,
+) {
   cancel();
   const token = { cancelled: false };
   cancelledToken = token;
@@ -42,6 +47,14 @@ export function speak(text: string, rate: number, onDone: () => void) {
   };
   utterance.onend = done;
   utterance.onerror = done;
+  // Karaoke vurgusu: tarayıcı kelime sınırlarını bildirirse söylenen
+  // kelimenin konumunu ilet. (Desteklenmeyen seslerde hiç tetiklenmez;
+  // vurgu görünmez ama okuma normal sürer.)
+  if (onWord) {
+    utterance.onboundary = (e) => {
+      if (!token.cancelled && e.name !== "sentence") onWord(e.charIndex);
+    };
+  }
   window.speechSynthesis.speak(utterance);
 }
 

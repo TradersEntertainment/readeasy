@@ -62,18 +62,29 @@ Uygulama tamamen statik bir Vite sitesidir; backend gerektirmez.
 2. Framework preset otomatik olarak **Vite** seçilir (Build: `npm run build`, Output: `dist`).
 3. Deploy — bitti.
 
-### Railway
+### Railway (kısa linkler dahil — önerilen)
 
 1. Repoyu Railway'e bağlayın (New Project → Deploy from GitHub repo).
-2. Nixpacks otomatik olarak `npm run build` ve `npm start` çalıştırır
-   (`start` script'i `vite preview` ile `dist` klasörünü `$PORT` üzerinden servis eder).
-3. Ayar gerekmez.
+2. Otomatik olarak `npm run build` ve `npm start` çalışır — `start`,
+   `server.mjs` ile hem siteyi hem kısa link API'sini sunar.
+3. Kalıcı paylaşım için servise **Volume** ekleyin (mount path: `/data`).
 
-## Kısa Paylaşım Linkleri (isteğe bağlı, ücretsiz)
+## Kısa Paylaşım Linkleri
 
-Varsayılan olarak paylaşım linkleri metni URL'in içinde taşır (uzun ama sunucusuz).
-Kısa linkler (`site.com/#s=Ab3kZ9Qw`) için ücretsiz bir [Supabase](https://supabase.com)
-projesi yeterlidir:
+Kısa linkler (`site.com/#s=Ab3kZ9Qw`) görselleri ve tabloları da taşır.
+İki yol vardır; uygulama ikisini de kendiliğinden dener, hiçbiri yoksa
+metin-only uzun (#d=) linke düşer:
+
+### Yol A — Railway sunucusu (önerilen, sıfır yapılandırma)
+
+Repo, `server.mjs` ile kendi mini sunucusunu içerir: statik siteyi sunar ve
+paylaşımları diske kaydeder (`POST /api/shares`). Railway'de:
+
+1. Repoyu Railway'e bağlayın — `npm run build` + `npm start` otomatik çalışır.
+2. Servise bir **Volume** ekleyin, **mount path: `/data`** yazın. Hepsi bu;
+   ortam değişkeni gerekmez. (Volume olmazsa paylaşımlar deploy'da silinir.)
+
+### Yol B — Supabase (Vercel gibi statik barındırma için)
 
 1. supabase.com'da proje aç → SQL Editor'de şunu çalıştır:
 

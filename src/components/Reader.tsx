@@ -8,7 +8,7 @@ import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from ".
 import { tick, thump } from "../lib/haptics";
 import { trackSeconds, trackWords } from "../lib/stats";
 import { encodeSharePayload, longShareUrl, shortShareUrl } from "../lib/share";
-import { createShortLink, shortLinksEnabled } from "../lib/shortlink";
+import { createShortLink } from "../lib/shortlink";
 import { describeScene, generateImage, planSegments } from "../lib/storify";
 import { saveDoc } from "../lib/storage";
 import Paywall from "./Paywall";
@@ -451,8 +451,9 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     }
   };
 
-  // Önce kısa link dener (Supabase yapılandırılmışsa) — kısa linkte görseller
-  // ve tablolar da taşınır. Servis yoksa/ulaşılamazsa metin-only uzun linke düşer.
+  // Önce kısa link dener (aynı origin'deki sunucu ya da Supabase) — kısa
+  // linkte görseller ve tablolar da taşınır. Servis yoksa/ulaşılamazsa
+  // metin-only uzun linke düşer.
   const makeShareUrl = async (): Promise<{ url: string; mediaDropped: boolean } | null> => {
     const opts = {
       sender: shareName.trim() || undefined,
@@ -461,22 +462,20 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     const current = linesLiveRef.current;
     const hasMedia = current.some((l) => l.kind !== "text");
 
-    if (shortLinksEnabled()) {
-      // görselli (zengin) payload; boyut sınırını aşarsa metin-only payload
-      let payload: string | null = null;
-      let richSent = false;
-      if (hasMedia) {
-        payload = encodeSharePayload(doc.title, current, opts, true);
-        richSent = payload !== null;
-      }
-      if (!payload) payload = encodeSharePayload(doc.title, current, opts, false);
-      if (payload) {
-        try {
-          const id = await createShortLink(payload);
-          return { url: shortShareUrl(id), mediaDropped: hasMedia && !richSent };
-        } catch {
-          // kısa link servisi ulaşılamazsa uzun linkle devam et
-        }
+    // görselli (zengin) payload; boyut sınırını aşarsa metin-only payload
+    let payload: string | null = null;
+    let richSent = false;
+    if (hasMedia) {
+      payload = encodeSharePayload(doc.title, current, opts, true);
+      richSent = payload !== null;
+    }
+    if (!payload) payload = encodeSharePayload(doc.title, current, opts, false);
+    if (payload) {
+      try {
+        const id = await createShortLink(payload);
+        return { url: shortShareUrl(id), mediaDropped: hasMedia && !richSent };
+      } catch {
+        // kısa link servisi ulaşılamazsa uzun linkle devam et
       }
     }
 

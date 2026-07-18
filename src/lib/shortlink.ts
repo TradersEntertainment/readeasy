@@ -1,59 +1,89 @@
-// Kısa paylaşım linkleri: metnin kendisi URL yerine Supabase'de saklanır,
-// linke yalnızca 8 karakterlik bir kod gömülür (#s=Ab3kZ9Qw).
+// Kısa paylaşım linkleri (#s=Ab3kZ9Qw): payload bir sunucuda saklanır,
+// URL yalnızca 8 karakterlik kodu taşır.
 //
-// Kurulum (README'de ayrıntısı var): ücretsiz bir Supabase projesi açıp
-// "shares" tablosunu oluşturun ve dağıtım ortamına şu değişkenleri ekleyin:
-//   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
-// Değişkenler tanımlı değilse uygulama otomatik olarak uzun (#d=) linke düşer.
+// İki backend sırayla denenir; hiçbiri yoksa çağıran uzun (#d=) linke düşer:
+//   1. Aynı origin'deki ReadEasy sunucusu (/api/shares) — Railway'de
+//      server.mjs bunu sağlar, ek yapılandırma GEREKMEZ.
+//   2. Supabase (VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY tanımlıysa) —
+//      statik barındırma (ör. Vercel) için isteğe bağlı yol.
 
-const BASE = import.meta.env.VITE_SUPABASE_URL;
-const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const ID_LENGTH = 8;
 const ID_PATTERN = /^[A-Za-z0-9]{6,16}$/;
 const ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-export function shortLinksEnabled(): boolean {
-  return Boolean(BASE && ANON);
+function isJson(res: Response): boolean {
+  return (res.headers.get("content-type") ?? "").includes("json");
 }
 
-function headers(): Record<string, string> {
+// ---------- 1. yol: aynı origin'deki ReadEasy sunucusu ----------
+
+async function apiCreate(payload: string): Promise<string> {
+  const res = await fetch("/api/shares", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ payload }),
+  });
+  // Statik barındırmada bu yol index.html/404 döndürür — JSON değilse yok say
+  if (!res.ok || !isJson(res)) throw new Error(`api ${res.status}`);
+  const { id } = (await res.json()) as { id?: string };
+  if (typeof id !== "string" || !ID_PATTERN.test(id)) {
+    throw new Error("bad id");
+  }
+  return id;
+}
+
+async function apiFetch(id: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/shares/${id}`);
+    if (!res.ok || !isJson(res)) return null;
+    const { payload } = (await res.json()) as { payload?: string };
+    return typeof payload === "string" && payload ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- 2. yol: Supabase ----------
+
+function supabaseEnabled(): boolean {
+  return Boolean(SUPABASE_URL && SUPABASE_ANON);
+}
+
+function supabaseHeaders(): Record<string, string> {
   return {
-    apikey: ANON!,
-    authorization: `Bearer ${ANON}`,
+    apikey: SUPABASE_ANON!,
+    authorization: `Bearer ${SUPABASE_ANON}`,
     "content-type": "application/json",
   };
 }
 
 function randomId(): string {
-  const bytes = new Uint8Array(ID_LENGTH);
+  const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   let id = "";
   for (const b of bytes) id += ALPHABET[b % ALPHABET.length];
   return id;
 }
 
-// Sıkıştırılmış payload'ı kaydeder, kısa kodu döndürür.
-export async function createShortLink(payload: string): Promise<string> {
+async function supabaseCreate(payload: string): Promise<string> {
   const id = randomId();
-  const res = await fetch(`${BASE}/rest/v1/shares`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/shares`, {
     method: "POST",
-    headers: { ...headers(), prefer: "return=minimal" },
+    headers: { ...supabaseHeaders(), prefer: "return=minimal" },
     body: JSON.stringify({ id, payload }),
   });
-  if (!res.ok) {
-    throw new Error(`Kısa link oluşturulamadı (HTTP ${res.status})`);
-  }
+  if (!res.ok) throw new Error(`supabase ${res.status}`);
   return id;
 }
 
-export async function fetchShortLink(id: string): Promise<string | null> {
-  if (!shortLinksEnabled() || !ID_PATTERN.test(id)) return null;
+async function supabaseFetch(id: string): Promise<string | null> {
   try {
     const res = await fetch(
-      `${BASE}/rest/v1/shares?id=eq.${id}&select=payload`,
-      { headers: headers() },
+      `${SUPABASE_URL}/rest/v1/shares?id=eq.${id}&select=payload`,
+      { headers: supabaseHeaders() },
     );
     if (!res.ok) return null;
     const rows = (await res.json()) as { payload?: string }[];
@@ -61,4 +91,24 @@ export async function fetchShortLink(id: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// ---------- dış arayüz ----------
+
+export async function createShortLink(payload: string): Promise<string> {
+  try {
+    return await apiCreate(payload);
+  } catch {
+    // aynı origin'de sunucu yok → Supabase'e bak
+  }
+  if (supabaseEnabled()) return supabaseCreate(payload);
+  throw new Error("Kısa link servisi bulunamadı");
+}
+
+export async function fetchShortLink(id: string): Promise<string | null> {
+  if (!ID_PATTERN.test(id)) return null;
+  const fromApi = await apiFetch(id);
+  if (fromApi) return fromApi;
+  if (supabaseEnabled()) return supabaseFetch(id);
+  return null;
 }

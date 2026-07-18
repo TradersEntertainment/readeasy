@@ -451,36 +451,56 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     }
   };
 
-  // Önce kısa link dener (Supabase yapılandırılmışsa); olmazsa uzun linke düşer.
-  const makeShareUrl = async (): Promise<string | null> => {
-    const payload = encodeSharePayload(doc.title, lines, {
+  // Önce kısa link dener (Supabase yapılandırılmışsa) — kısa linkte görseller
+  // ve tablolar da taşınır. Servis yoksa/ulaşılamazsa metin-only uzun linke düşer.
+  const makeShareUrl = async (): Promise<{ url: string; mediaDropped: boolean } | null> => {
+    const opts = {
       sender: shareName.trim() || undefined,
       note: shareNote.trim() || undefined,
-    });
-    if (!payload) {
+    };
+    const current = linesLiveRef.current;
+    const hasMedia = current.some((l) => l.kind !== "text");
+
+    if (shortLinksEnabled()) {
+      // görselli (zengin) payload; boyut sınırını aşarsa metin-only payload
+      let payload: string | null = null;
+      let richSent = false;
+      if (hasMedia) {
+        payload = encodeSharePayload(doc.title, current, opts, true);
+        richSent = payload !== null;
+      }
+      if (!payload) payload = encodeSharePayload(doc.title, current, opts, false);
+      if (payload) {
+        try {
+          const id = await createShortLink(payload);
+          return { url: shortShareUrl(id), mediaDropped: hasMedia && !richSent };
+        } catch {
+          // kısa link servisi ulaşılamazsa uzun linkle devam et
+        }
+      }
+    }
+
+    const textOnly = encodeSharePayload(doc.title, current, opts, false);
+    if (!textOnly) {
       showToast("Bu belge paylaşmak için çok büyük ya da metin içermiyor.");
       return null;
     }
-    if (shortLinksEnabled()) {
-      try {
-        const id = await createShortLink(payload);
-        return shortShareUrl(id);
-      } catch {
-        // kısa link servisi ulaşılamazsa uzun linkle devam et
-      }
-    }
-    return longShareUrl(payload);
+    return { url: longShareUrl(textOnly), mediaDropped: hasMedia };
   };
 
   const copyShare = async () => {
     setSharing(true);
-    const url = await makeShareUrl();
+    const result = await makeShareUrl();
     setSharing(false);
-    if (!url) return;
-    setShareUrl(url);
+    if (!result) return;
+    setShareUrl(result.url);
     try {
-      await navigator.clipboard?.writeText(url);
-      showToast("Okuma linki kopyalandı 🔗 Artık birine atabilirsin!");
+      await navigator.clipboard?.writeText(result.url);
+      showToast(
+        result.mediaDropped
+          ? "Link kopyalandı 🔗 (görseller sığmadığı için yalnızca metin)"
+          : "Okuma linki kopyalandı 🔗 Artık birine atabilirsin!",
+      );
     } catch {
       showToast("Kopyalanamadı — linki aşağıdaki kutudan seçip kopyala.");
     }
@@ -488,10 +508,10 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
 
   const nativeShare = async () => {
     setSharing(true);
-    const url = await makeShareUrl();
+    const result = await makeShareUrl();
     setSharing(false);
-    if (!url) return;
-    setShareUrl(url);
+    if (!result) return;
+    setShareUrl(result.url);
     const who = shareName.trim();
     navigator
       .share({
@@ -499,7 +519,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         text: who
           ? `${who} sana bir okuma gönderdi: ${doc.title}`
           : `Sana bir okuma gönderildi: ${doc.title}`,
-        url,
+        url: result.url,
       })
       .then(() => setPanel("none"))
       .catch(() => {

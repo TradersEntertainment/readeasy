@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Home from "./components/Home";
 import Reader from "./components/Reader";
-import { blocksToLines, type Doc } from "./lib/doc";
+import { blocksToLines, type Doc, type Line } from "./lib/doc";
 import type { Extracted } from "./lib/extract";
 import { applyTheme } from "./lib/themes";
 import { loadDoc, loadPos, loadSettings, saveDoc, saveSettings } from "./lib/storage";
@@ -36,20 +36,26 @@ export default function App() {
     saveSettings({ theme });
   }, [theme]);
 
-  const openBlocks = useCallback((title: string, blocks: Extracted[]) => {
-    const lines = blocksToLines(blocks);
+  const openLines = useCallback((title: string, lines: Line[]) => {
     if (lines.length === 0) return;
     saveDoc({ title, lines });
     setInitialLine(0);
     setDoc({ title, lines });
   }, []);
 
+  const openBlocks = useCallback(
+    (title: string, blocks: Extracted[]) => {
+      openLines(title, blocksToLines(blocks));
+    },
+    [openLines],
+  );
+
   // Paylaşılan okuma linkiyle gelindi mi?
   // #d=... → içerik URL'de (senkron), #s=... → içerik sunucuda (async).
   useEffect(() => {
     const openShared = (shared: SharedDoc) => {
       window.history.replaceState(null, "", window.location.pathname);
-      openBlocks(shared.title, [{ kind: "text", text: shared.text }]);
+      openLines(shared.title, shared.lines);
       setInvite({
         sender: shared.sender,
         note: shared.note,
@@ -73,7 +79,7 @@ export default function App() {
         }
       });
     }
-  }, [openBlocks]);
+  }, [openLines]);
 
   const resume = useCallback(() => {
     const stored = loadDoc();

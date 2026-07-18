@@ -80,12 +80,21 @@ projesi yeterlidir:
    ```sql
    create table public.shares (
      id text primary key,
-     payload text not null check (length(payload) < 200000),
+     payload text not null check (length(payload) < 6000000),
      created_at timestamptz default now()
    );
    alter table public.shares enable row level security;
    create policy "anon insert" on public.shares for insert with check (true);
    create policy "anon read" on public.shares for select using (true);
+   ```
+
+   Tabloyu daha önce 200000 sınırıyla oluşturduysanız görselli paylaşımlar
+   için sınırı büyütün:
+
+   ```sql
+   alter table public.shares drop constraint shares_payload_check;
+   alter table public.shares add constraint shares_payload_check
+     check (length(payload) < 6000000);
    ```
 
 2. Project Settings → API'den URL ve anon anahtarını al; dağıtım ortamına ekle
@@ -98,6 +107,11 @@ projesi yeterlidir:
 
 3. Yeniden deploy et. Değişkenler yoksa ya da servis ulaşılamazsa uygulama
    kendiliğinden uzun linke döner — paylaşım asla bozulmaz.
+
+Kısa linkler aktifken paylaşımlar **görselleri ve tabloları da taşır**
+(Hikayeleştir görselleri dahil, ~3-4 MB'a kadar). Uzun linkte yalnızca metin
+taşınır ve kullanıcı bilgilendirilir. Linkten gelen içerik alıcı tarafta
+doğrulanır (görsel kaynak şeması kısıtlanır, tablo HTML'i yeniden temizlenir).
 
 ## Gelir Modeli (Freemium)
 

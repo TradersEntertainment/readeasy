@@ -7,6 +7,8 @@
 // - DOCX: mammoth HTML'e çevirir; paragraflar metin, <img> görsel,
 //   <table> ise temizlenmiş HTML tablo bloğu olur.
 
+import { sanitizeTableElement } from "./sanitize";
+
 export type Extracted =
   | { kind: "text"; text: string }
   | { kind: "image"; src: string }
@@ -177,26 +179,6 @@ function imageToDataUrl(img: PdfImageObj): string | null {
 
 // ---------- DOCX ----------
 
-const ALLOWED_TABLE_TAGS = new Set([
-  "TABLE",
-  "THEAD",
-  "TBODY",
-  "TFOOT",
-  "TR",
-  "TD",
-  "TH",
-  "P",
-  "BR",
-  "STRONG",
-  "B",
-  "EM",
-  "I",
-  "U",
-  "SPAN",
-  "COL",
-  "COLGROUP",
-]);
-
 async function extractDocx(file: File): Promise<Extracted[]> {
   const mammoth = await import("mammoth/mammoth.browser");
   // convertToHtml görselleri varsayılan olarak base64 data URL olarak gömer.
@@ -225,7 +207,7 @@ async function extractDocx(file: File): Promise<Extracted[]> {
   for (const child of Array.from(dom.body.children)) {
     if (child.tagName === "TABLE") {
       flushText();
-      blocks.push({ kind: "table", html: sanitizeTable(child) });
+      blocks.push({ kind: "table", html: sanitizeTableElement(child) });
       continue;
     }
     if (child.tagName === "IMG") {
@@ -245,24 +227,3 @@ async function extractDocx(file: File): Promise<Extracted[]> {
   return blocks;
 }
 
-// Tablo HTML'ini beyaz listeyle temizler: izin verilmeyen etiketler
-// içerikleri korunarak açılır, colspan/rowspan dışındaki tüm öznitelikler
-// silinir.
-function sanitizeTable(table: Element): string {
-  const clone = table.cloneNode(true) as Element;
-  for (const el of Array.from(clone.querySelectorAll("*"))) {
-    if (!ALLOWED_TABLE_TAGS.has(el.tagName)) {
-      el.replaceWith(...Array.from(el.childNodes));
-      continue;
-    }
-    for (const attr of Array.from(el.attributes)) {
-      if (attr.name !== "colspan" && attr.name !== "rowspan") {
-        el.removeAttribute(attr.name);
-      }
-    }
-  }
-  for (const attr of Array.from(clone.attributes)) {
-    clone.removeAttribute(attr.name);
-  }
-  return clone.outerHTML;
-}

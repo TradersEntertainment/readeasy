@@ -210,5 +210,34 @@ export function updateProgress(id: string, pos: number, total: number) {
 
 export function removeFromLibrary(id: string) {
   localStorage.removeItem(DOC_PREFIX + id);
+  localStorage.removeItem(NOTES_PREFIX + id);
   writeLibrary(readLibraryRaw().filter((e) => e.id !== id));
+}
+
+// ---------- Satır notları ----------
+
+const NOTES_PREFIX = "readeasy:notes:";
+
+export type Notes = Record<number, string>;
+
+export function loadNotes(docId: string): Notes {
+  try {
+    const raw = localStorage.getItem(NOTES_PREFIX + docId);
+    const notes = raw ? (JSON.parse(raw) as Notes) : {};
+    return notes && typeof notes === "object" ? notes : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveNotes(docId: string, notes: Notes) {
+  try {
+    if (Object.keys(notes).length === 0) {
+      localStorage.removeItem(NOTES_PREFIX + docId);
+    } else {
+      localStorage.setItem(NOTES_PREFIX + docId, JSON.stringify(notes));
+    }
+  } catch {
+    // kota dolduysa notsuz devam
+  }
 }

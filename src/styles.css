@@ -754,6 +754,57 @@ button {
   font-size: 0.92rem;
 }
 
+/* ---------- Satır notları ---------- */
+
+.line__note {
+  font-size: 0.5em;
+  vertical-align: super;
+  margin-left: 0.35em;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: transform 0.12s ease;
+}
+
+.line__note:hover {
+  transform: scale(1.2);
+}
+
+.noteBubble {
+  position: fixed;
+  z-index: 12;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border-top-left-radius: 4px;
+  background: rgba(var(--shade-rgb), 0.95);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.4),
+    0 0 30px color-mix(in srgb, var(--accent) 15%, transparent);
+  backdrop-filter: blur(14px);
+  animation: bubbleIn 0.18s ease;
+}
+
+@keyframes bubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.noteBubble__ask {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 /* ---------- Bildirim (toast) ---------- */
 
 .toast {

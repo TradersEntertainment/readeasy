@@ -3,7 +3,7 @@ import { lineChars, type Doc } from "../lib/doc";
 import { cancel as ttsCancel, speak as ttsSpeak, ttsAvailable } from "../lib/tts";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
-import { loadSettings, saveSettings, updateProgress, type Align } from "../lib/storage";
+import { loadNotes, loadSettings, saveNotes, saveSettings, updateProgress, type Align, type Notes } from "../lib/storage";
 import { addReadingSeconds, grantAdReward, isPremium, remainingSeconds } from "../lib/premium";
 import { tick, thump } from "../lib/haptics";
 import { trackSeconds, trackWords } from "../lib/stats";
@@ -211,6 +211,22 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   // Klavye kısayolları.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Bir giriş alanına yazılıyorsa (paylaşım notu vb.) kısayolları
+      // çalıştırma — yalnızca Escape paneli/baloncuğu kapatabilir.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        if (e.key === "Escape") {
+          if (bubbleRef.current) setBubble(null);
+          else if (panelRef.current !== "none") setPanel("none");
+          target.blur();
+        }
+        return;
+      }
       if (paywallRef.current) return; // kota ekranı açıkken gezinme kilitli
       if (rsvpRef.current) return; // hız modu kendi kısayollarını yönetir
       switch (e.key) {
@@ -258,7 +274,8 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
           void toggleFullscreen();
           break;
         case "Escape":
-          if (panelRef.current !== "none") setPanel("none");
+          if (bubbleRef.current) setBubble(null);
+          else if (panelRef.current !== "none") setPanel("none");
           else if (!document.fullscreenElement) onExit();
           break;
       }
@@ -386,6 +403,80 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [sharing, setSharing] = useState(false);
   const [storify, setStorify] = useState<{ done: number; total: number } | null>(null);
   const storifyCancelled = useRef(false);
+
+  // Satır notları: sağ tık / basılı tutma ile baloncuk açılır.
+  const [notes, setNotes] = useState<Notes>(() => loadNotes(doc.id));
+  const [bubble, setBubble] = useState<{ line: number; x: number; y: number } | null>(null);
+  const [bubbleMode, setBubbleMode] = useState<"ask" | "edit">("ask");
+  const [noteDraft, setNoteDraft] = useState("");
+  const bubbleRef = useRef(bubble);
+  bubbleRef.current = bubble;
+  const pressRef = useRef<{ timer: number; x: number; y: number }>({ timer: 0, x: 0, y: 0 });
+
+  useEffect(() => saveNotes(doc.id, notes), [doc.id, notes]);
+
+  const openBubble = useCallback(
+    (line: number, x: number, y: number) => {
+      const existing = notes[line];
+      setBubble({
+        line,
+        x: Math.max(12, Math.min(x, window.innerWidth - 312)),
+        y: Math.max(12, Math.min(y, window.innerHeight - 230)),
+      });
+      setBubbleMode(existing ? "edit" : "ask");
+      setNoteDraft(existing ?? "");
+    },
+    [notes],
+  );
+
+  const saveBubbleNote = () => {
+    if (!bubble) return;
+    const text = noteDraft.trim();
+    setNotes((prev) => {
+      const next = { ...prev };
+      if (text) next[bubble.line] = text.slice(0, 500);
+      else delete next[bubble.line];
+      return next;
+    });
+    setBubble(null);
+  };
+
+  const deleteBubbleNote = () => {
+    if (!bubble) return;
+    setNotes((prev) => {
+      const next = { ...prev };
+      delete next[bubble.line];
+      return next;
+    });
+    setBubble(null);
+  };
+
+  // Mobil: satıra ~550ms basılı tutunca baloncuk aç.
+  const pressHandlers = useCallback(
+    (line: number) => ({
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.pointerType !== "touch") return;
+        pressRef.current.x = e.clientX;
+        pressRef.current.y = e.clientY;
+        clearTimeout(pressRef.current.timer);
+        pressRef.current.timer = window.setTimeout(
+          () => openBubble(line, pressRef.current.x, pressRef.current.y),
+          550,
+        );
+      },
+      onPointerMove: (e: React.PointerEvent) => {
+        if (
+          Math.abs(e.clientX - pressRef.current.x) > 10 ||
+          Math.abs(e.clientY - pressRef.current.y) > 10
+        ) {
+          clearTimeout(pressRef.current.timer);
+        }
+      },
+      onPointerUp: () => clearTimeout(pressRef.current.timer),
+      onPointerCancel: () => clearTimeout(pressRef.current.timer),
+    }),
+    [openBubble],
+  );
 
   // 🪄 Hikayeleştir: TÜM bölümlerin görselleri aynı anda üretilir; her biri
   // hazır olur olmaz kendi bölümünün arkasına yerleştirilir. Okuma bu sırada
@@ -598,6 +689,26 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         const setRef = (el: HTMLElement | null) => {
           lineRefs.current[i] = el;
         };
+        const noteProps = {
+          onContextMenu: (e: React.MouseEvent) => {
+            e.preventDefault();
+            openBubble(i, e.clientX, e.clientY);
+          },
+          ...pressHandlers(i),
+        };
+        const marker = notes[i] && (
+          <button
+            className="line__note"
+            title="Notunu gör"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = (e.target as HTMLElement).getBoundingClientRect();
+              openBubble(i, rect.left, rect.bottom + 8);
+            }}
+          >
+            📌
+          </button>
+        );
         if (line.kind === "image") {
           return (
             <figure
@@ -605,29 +716,32 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
               ref={setRef}
               className="line line--media"
               onClick={() => goTo(i)}
+              {...noteProps}
             >
               <img src={line.src} alt="" />
+              {marker}
             </figure>
           );
         }
         if (line.kind === "table") {
           return (
-            <div
-              key={i}
-              ref={setRef}
-              className="line line--media line--table"
-              onClick={() => goTo(i)}
-              dangerouslySetInnerHTML={{ __html: line.html }}
-            />
+            <div key={i} ref={setRef} className="line line--media" onClick={() => goTo(i)} {...noteProps}>
+              <div
+                className="line--table"
+                dangerouslySetInnerHTML={{ __html: line.html }}
+              />
+              {marker}
+            </div>
           );
         }
         return (
-          <p key={i} ref={setRef} className="line" onClick={() => goTo(i)}>
+          <p key={i} ref={setRef} className="line" onClick={() => goTo(i)} {...noteProps}>
             {bionic ? bionicWords(line.text) : line.text}
+            {marker}
           </p>
         );
       }),
-    [lines, bionic, goTo],
+    [lines, bionic, goTo, notes, openBubble, pressHandlers],
   );
 
   return (
@@ -658,7 +772,10 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       <div
         className="reader__scroller"
         ref={scrollerRef}
-        onClick={() => panel !== "none" && setPanel("none")}
+        onClick={() => {
+          if (panel !== "none") setPanel("none");
+          if (bubble) setBubble(null);
+        }}
       >
         <div
           className="reader__lines"
@@ -788,6 +905,61 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       )}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {bubble && (
+        <div
+          className="noteBubble"
+          style={{ left: bubble.x, top: bubble.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {bubbleMode === "ask" ? (
+            <>
+              <p className="noteBubble__ask">
+                Buraya küçük bir not eklemek ister misin? 📝
+              </p>
+              <div className="chips">
+                <button
+                  className="chip chip--on"
+                  onClick={() => setBubbleMode("edit")}
+                >
+                  Not ekle
+                </button>
+                <button className="chip" onClick={() => setBubble(null)}>
+                  Vazgeç
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <textarea
+                className="panel__input"
+                autoFocus
+                rows={3}
+                maxLength={500}
+                placeholder="Notun… (yalnızca sende saklanır)"
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setBubble(null);
+                }}
+              />
+              <div className="chips">
+                <button className="chip chip--on" onClick={saveBubbleNote}>
+                  Kaydet
+                </button>
+                {notes[bubble.line] && (
+                  <button className="chip" onClick={deleteBubbleNote}>
+                    Sil
+                  </button>
+                )}
+                <button className="chip" onClick={() => setBubble(null)}>
+                  Kapat
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {storify && (
         <div className="storifyPill">

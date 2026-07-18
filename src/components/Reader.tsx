@@ -384,8 +384,9 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [storify, setStorify] = useState<{ done: number; total: number } | null>(null);
   const storifyCancelled = useRef(false);
 
-  // 🪄 Hikayeleştir: bölümler için AI görseli üret, hazır olan her görseli
-  // akışa hemen serpiştir. Okuma bu sırada devam edebilir.
+  // 🪄 Hikayeleştir: TÜM bölümlerin görselleri aynı anda üretilir; her biri
+  // hazır olur olmaz kendi bölümünün arkasına yerleştirilir. Okuma bu sırada
+  // devam edebilir.
   const runStorify = async () => {
     if (storify) return;
     const plan = planSegments(linesLiveRef.current);
@@ -395,27 +396,51 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     }
     storifyCancelled.current = false;
     setStorify({ done: 0, total: plan.length });
-    showToast("🪄 Görseller üretiliyor — okumaya devam edebilirsin");
+    showToast("🪄 Görsellerin hepsi aynı anda üretiliyor — okumaya devam et");
+
+    const insertedPlanIdx = new Set<number>();
+    let done = 0;
     let inserted = 0;
-    for (let k = 0; k < plan.length; k++) {
-      if (storifyCancelled.current) break;
-      try {
-        const scene = await describeScene(plan[k].excerpt);
-        if (storifyCancelled.current) break;
-        const src = await generateImage(scene);
-        if (storifyCancelled.current) break;
-        const insertAt = plan[k].afterIndex + 1 + inserted;
-        setLines((prev) => {
-          const next = prev.slice();
-          next.splice(insertAt, 0, { kind: "image", src });
-          return next;
-        });
-        inserted++;
-      } catch {
-        // bu bölümün görseli olmadı → hikaye metniyle devam
+
+    const runOne = async (k: number) => {
+      // bir kez otomatik yeniden dene (geçici hız limitlerine karşı)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (storifyCancelled.current) return;
+        try {
+          const scene = await describeScene(plan[k].excerpt);
+          if (storifyCancelled.current) return;
+          const src = await generateImage(scene);
+          if (storifyCancelled.current) return;
+          // Sıra dışı tamamlanmalar için yerleştirme: benden önceki
+          // bölümlerden kaçının görseli çoktan eklendiyse o kadar kay.
+          let shift = 0;
+          for (const j of insertedPlanIdx) {
+            if (plan[j].afterIndex < plan[k].afterIndex) shift++;
+          }
+          insertedPlanIdx.add(k);
+          const insertAt = plan[k].afterIndex + 1 + shift;
+          setLines((prev) => {
+            const next = prev.slice();
+            next.splice(insertAt, 0, { kind: "image", src });
+            return next;
+          });
+          inserted++;
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+        }
       }
-      setStorify({ done: k + 1, total: plan.length });
-    }
+    };
+
+    await Promise.all(
+      plan.map((_, k) =>
+        runOne(k).finally(() => {
+          done++;
+          setStorify((s) => (s ? { done, total: plan.length } : s));
+        }),
+      ),
+    );
+
     setStorify(null);
     if (inserted > 0) {
       saveDoc({ title: doc.title, lines: linesLiveRef.current });

@@ -605,6 +605,62 @@ button {
   gap: 0.45rem;
 }
 
+/* ---------- AI sohbet paneli ---------- */
+
+.panel--chat {
+  width: min(520px, 92vw);
+}
+
+.chat__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 44vh;
+  min-height: 7rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  overscroll-behavior: contain;
+}
+
+.chatMsg {
+  max-width: 85%;
+  padding: 0.55rem 0.85rem;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chatMsg--user {
+  align-self: flex-end;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: var(--on-accent);
+  border-bottom-right-radius: 5px;
+}
+
+.chatMsg--assistant {
+  align-self: flex-start;
+  background: rgba(var(--ink-rgb), 0.08);
+  border: 1px solid rgba(var(--ink-rgb), 0.1);
+  border-bottom-left-radius: 5px;
+}
+
+.chatMsg--busy {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.chat__inputRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat__inputRow .panel__input {
+  flex: 1;
+  min-width: 0;
+}
+
 .volume input[type="range"] {
   width: 100%;
   accent-color: var(--accent);

@@ -10,6 +10,7 @@ import { trackSeconds, trackWords } from "../lib/stats";
 import { encodeSharePayload, longShareUrl, pathShareUrl, shortShareUrl } from "../lib/share";
 import { createShortLink } from "../lib/shortlink";
 import { describeScene, generateImage, planSegments } from "../lib/storify";
+import { chatAboutDoc, type ChatMessage } from "../lib/chat";
 import { saveDocToLibrary } from "../lib/storage";
 import Paywall from "./Paywall";
 import Rsvp from "./Rsvp";
@@ -32,7 +33,7 @@ const ALIGNMENTS: { id: Align; name: string }[] = [
 const STYLE_WINDOW = 14; // aktif satırın etrafında stillenecek satır sayısı
 const READING_CPS = 16; // kalan süre tahmini için ortalama karakter/saniye
 
-type Panel = "none" | "sound" | "theme" | "share";
+type Panel = "none" | "sound" | "theme" | "share" | "chat";
 
 // Bionic okuma: her kelimenin ilk ~%40'ı kalın — göz kelimeyi yarım
 // görüp beynin tamamlamasına izin verir, odaklanmayı kolaylaştırır.
@@ -422,6 +423,67 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [sharing, setSharing] = useState(false);
   const [storify, setStorify] = useState<{ done: number; total: number } | null>(null);
   const storifyCancelled = useRef(false);
+
+  // 💬 Belge hakkında AI sohbeti (oturumluk; belgeyle birlikte saklanmaz)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages, chatBusy, panel]);
+
+  // Sohbete gönderilecek belge bölümü: kısa belgede tamamı, uzun belgede
+  // giriş + aktif satırın çevresi.
+  const buildChatContext = () => {
+    const textLines = linesLiveRef.current
+      .map((l, i) => ({ l, i }))
+      .filter((x) => x.l.kind === "text") as { l: { kind: "text"; text: string }; i: number }[];
+    const all = textLines.map((x) => x.l.text).join("\n");
+    if (all.length <= 6000) return all;
+    let offset = 0;
+    for (const x of textLines) {
+      if (x.i >= activeRef.current) break;
+      offset += x.l.text.length + 1;
+    }
+    const start = Math.max(0, offset - 2500);
+    const around = all.slice(start, offset + 2500);
+    return start > 1200
+      ? all.slice(0, 1000) + "\n[…]\n" + around
+      : all.slice(0, 6000);
+  };
+
+  const sendChat = async () => {
+    const question = chatInput.trim();
+    if (!question || chatBusy) return;
+    setChatInput("");
+    const history: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", content: question },
+    ];
+    setChatMessages(history);
+    setChatBusy(true);
+    try {
+      const reply = await chatAboutDoc(
+        doc.title,
+        buildChatContext(),
+        history.slice(-10), // bağlamı taze tut, istekleri küçük tut
+      );
+      setChatMessages([...history, { role: "assistant", content: reply }]);
+    } catch {
+      setChatMessages([
+        ...history,
+        {
+          role: "assistant",
+          content: "Şu an yanıt veremedim — birazdan tekrar dener misin? 🙏",
+        },
+      ]);
+    } finally {
+      setChatBusy(false);
+    }
+  };
 
   // Satır notları: sağ tık / basılı tutma ile baloncuk açılır.
   const [notes, setNotes] = useState<Notes>(() => loadNotes(doc.id));
@@ -824,6 +886,53 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         </div>
       </div>
 
+      {panel === "chat" && (
+        <div className="panel panel--chat">
+          <span className="panel__title">💬 Okuduğunla ilgili sohbet</span>
+          <div className="chat__messages" ref={chatScrollRef}>
+            {chatMessages.length === 0 && !chatBusy && (
+              <p className="panel__hint">
+                Belge hakkında istediğini sor: "Bunu özetler misin?", "Bu ne
+                demek?", "Yazar burada ne anlatmak istiyor?"…
+              </p>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} className={`chatMsg chatMsg--${m.role}`}>
+                {m.content}
+              </div>
+            ))}
+            {chatBusy && (
+              <div className="chatMsg chatMsg--assistant chatMsg--busy">
+                Yazıyor…
+              </div>
+            )}
+          </div>
+          <div className="chat__inputRow">
+            <input
+              className="panel__input"
+              placeholder="Sorunu yaz…"
+              value={chatInput}
+              maxLength={1000}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void sendChat();
+              }}
+            />
+            <button
+              className="chip chip--on"
+              disabled={chatBusy || !chatInput.trim()}
+              onClick={() => void sendChat()}
+            >
+              {chatBusy ? "…" : "Gönder"}
+            </button>
+          </div>
+          <p className="panel__hint">
+            Yanıtlar herkese açık ücretsiz bir AI servisinden gelir; sorunla
+            birlikte belgeden bir bölüm bu servise gönderilir.
+          </p>
+        </div>
+      )}
+
       {panel === "share" && (
         <div className="panel">
           <span className="panel__title">💌 Birine gönder</span>
@@ -1081,6 +1190,15 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             title="Hız modu — kelime kelime (RSVP)"
           >
             ⚡
+          </button>
+        )}
+        {hasText && (
+          <button
+            className={`iconBtn ${panel === "chat" ? "iconBtn--live" : ""}`}
+            onClick={() => setPanel((p) => (p === "chat" ? "none" : "chat"))}
+            title="Okuduğunla ilgili AI sohbeti"
+          >
+            💬
           </button>
         )}
         {hasText && (

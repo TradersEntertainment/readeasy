@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Home from "./components/Home";
 import Reader from "./components/Reader";
 import { blocksToLines, newDocId, type Doc, type Line } from "./lib/doc";
@@ -42,6 +42,21 @@ export default function App() {
   const [initialLine, setInitialLine] = useState(0);
   const [theme, setTheme] = useState(() => loadSettings().theme);
   const [invite, setInvite] = useState<Invite | null>(null);
+  const [showIntro, setShowIntro] = useState(false);
+
+  // Bu tarayıcıda uygulama daha önce hiç açıldı mı? (yalnızca gerçek ilk
+  // ziyarette tanıtım şeridini göstermek için) — openShared'dan önce çalışsın.
+  const firstVisit = useRef(false);
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("readeasy:visited")) {
+        firstVisit.current = true;
+        localStorage.setItem("readeasy:visited", "1");
+      }
+    } catch {
+      // localStorage yoksa tanıtımı göstermeyiz
+    }
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -74,6 +89,7 @@ export default function App() {
         note: shared.note,
         title: shared.title,
       });
+      if (firstVisit.current) setShowIntro(true);
     };
 
     const shared = parseShareHash();
@@ -112,6 +128,7 @@ export default function App() {
           onThemeChange={setTheme}
           onExit={() => {
             setInvite(null);
+            setShowIntro(false);
             setDoc(null);
           }}
         />
@@ -132,7 +149,34 @@ export default function App() {
               >
                 Okumaya başla ▶
               </button>
+              <p className="invite__brand">
+                <b>ReadEasy</b> · uzun yazıları şarkı sözü gibi akıcı okuma
+              </p>
             </div>
+          </div>
+        )}
+        {showIntro && !invite && (
+          <div className="intro">
+            <span className="intro__text">
+              ✨ Bu deneyim <b>ReadEasy</b> — kendi yazılarını, PDF'lerini,
+              hatta ekran görüntülerini de böyle akıcı okuyabilirsin.
+            </span>
+            <button
+              className="intro__cta"
+              onClick={() => {
+                setShowIntro(false);
+                setDoc(null);
+              }}
+            >
+              Dene
+            </button>
+            <button
+              className="intro__close"
+              title="Kapat"
+              onClick={() => setShowIntro(false)}
+            >
+              ✕
+            </button>
           </div>
         )}
       </>

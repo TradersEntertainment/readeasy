@@ -897,6 +897,99 @@ button {
   font-size: 0.92rem;
 }
 
+.invite__brand {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: rgba(var(--ink-rgb), 0.45);
+}
+
+.invite__brand b {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- İlk ziyaret tanıtım şeridi (paylaşılan linki açanlar) ---------- */
+
+.intro {
+  position: absolute;
+  bottom: calc(5.6rem + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(560px, 92vw);
+  padding: 0.6rem 0.7rem 0.6rem 1rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  background: rgba(var(--shade-rgb), 0.9);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+  animation: introIn 0.4s ease 0.3s both;
+}
+
+@keyframes introIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.intro__text {
+  color: var(--muted);
+}
+
+.intro__text b {
+  color: var(--text);
+}
+
+.intro__cta {
+  flex-shrink: 0;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: filter 0.15s ease;
+}
+
+.intro__cta:hover {
+  filter: brightness(1.08);
+}
+
+.intro__close {
+  flex-shrink: 0;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.75rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.intro__close:hover {
+  background: rgba(var(--ink-rgb), 0.14);
+  color: var(--text);
+}
+
+@media (max-width: 560px) {
+  .intro {
+    font-size: 0.82rem;
+    gap: 0.5rem;
+    padding: 0.55rem 0.6rem 0.55rem 0.85rem;
+  }
+}
+
 /* ---------- TTS karaoke vurgusu ---------- */
 
 .line__spoken {

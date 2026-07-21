@@ -921,16 +921,17 @@ button {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  max-width: min(560px, 92vw);
+  width: max-content;
+  max-width: min(560px, calc(100vw - 24px));
   padding: 0.6rem 0.7rem 0.6rem 1rem;
-  border-radius: 999px;
+  border-radius: 18px;
   font-size: 0.88rem;
   line-height: 1.35;
-  background: rgba(var(--shade-rgb), 0.9);
+  background: rgba(var(--shade-rgb), 0.92);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
   animation: introIn 0.4s ease 0.3s both;
 }
 
@@ -945,6 +946,17 @@ button {
   }
 }
 
+@keyframes introInMobile {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .intro__text {
   color: var(--muted);
 }
@@ -955,9 +967,10 @@ button {
 
 .intro__cta {
   flex-shrink: 0;
-  padding: 0.35rem 0.9rem;
+  padding: 0.4rem 0.95rem;
   border-radius: 999px;
   font-weight: 700;
+  white-space: nowrap;
   color: var(--on-accent);
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   transition: filter 0.15s ease;
@@ -984,9 +997,22 @@ button {
 
 @media (max-width: 560px) {
   .intro {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    width: auto;
+    max-width: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem 0.6rem;
     font-size: 0.82rem;
-    gap: 0.5rem;
-    padding: 0.55rem 0.6rem 0.55rem 0.85rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: 16px;
+    animation-name: introInMobile;
+  }
+
+  .intro__text {
+    flex: 1 1 100%;
   }
 }
 

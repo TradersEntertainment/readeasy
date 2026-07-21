@@ -99,8 +99,6 @@ export function primeAudio() {
 // bekletilir — böylece satırlar arası boşluk (dura dura okuma) ortadan kalkar.
 // Metin, sunucuya TEK parça gider; Google'ın 200 karakter sınırını sunucu
 // kendi içinde bölerek halleder.
-const preCache = new Map<string, string>(); // "tier|metin" -> blobURL
-
 // Okuma katmanı: "simple" (Google) ya da "premium" (ElevenLabs, şifreyle).
 let reqTier: "simple" | "premium" = "simple";
 let reqPass = "";
@@ -144,103 +142,48 @@ export async function checkPremiumPass(pass: string): Promise<boolean> {
   }
 }
 
-async function fetchClip(text: string, signal?: AbortSignal): Promise<string> {
+interface Clip {
+  url: string;
+  provider: string; // x-tts-provider: elevenlabs | google
+}
+
+async function fetchClip(text: string, signal?: AbortSignal): Promise<Clip> {
   const hit = preCache.get(keyOf(text));
-  if (hit) {
+  if (hit && hit.url) {
     preCache.delete(keyOf(text));
     return hit;
   }
   const res = await fetch(ttsUrl(text), ttsInit(signal));
   if (!res.ok) throw new Error(`tts ${res.status}`);
+  const provider = res.headers.get("x-tts-provider") ?? "google";
   const blob = await res.blob();
   if (!blob.type.startsWith("audio")) throw new Error("not audio");
-  return URL.createObjectURL(blob);
+  return { url: URL.createObjectURL(blob), provider };
 }
 
 // Sonraki satırı arka planda getir, önbelleğe koy (ateşle-unut).
+const preCache = new Map<string, Clip>(); // "tier|metin" -> klip
 function prefetchLine(text?: string) {
   if (!text) return;
   const k = keyOf(text);
   if (preCache.has(k)) return;
-  preCache.set(k, ""); // yer tut (çift indirmeyi önle)
+  preCache.set(k, { url: "", provider: "" }); // yer tut (çift indirmeyi önle)
   fetch(ttsUrl(text), ttsInit())
     .then(async (r) => {
       if (!r.ok) throw new Error();
+      const provider = r.headers.get("x-tts-provider") ?? "google";
       const b = await r.blob();
       if (!b.type.startsWith("audio")) throw new Error();
-      preCache.set(k, URL.createObjectURL(b));
+      preCache.set(k, { url: URL.createObjectURL(b), provider });
     })
     .catch(() => preCache.delete(k));
 }
 
 function clearPreCache() {
-  for (const url of preCache.values()) if (url) URL.revokeObjectURL(url);
-  preCache.clear();
-}
-
-// Doğal sesle bir satırı okur ve BİR SONRAKİ satırı önden indirir. Klip
-// alınamazsa hata fırlatır (çağıran cihaz sesine düşer). Bitince onDone.
-export async function speakNatural(
-  text: string,
-  rate: number,
-  onDone: () => void,
-  nextText?: string,
-): Promise<void> {
-  cancel();
-  const token = { cancelled: false };
-  cancelledToken = token;
-  const controller = new AbortController();
-  const audio = getPlayer();
-  audio.muted = false;
-  audio.volume = 1;
-  audio.playbackRate = Math.min(2, Math.max(0.6, rate));
-
-  let currentUrl: string | null = null;
-  let safety = 0;
-  activeCancel = () => {
-    token.cancelled = true;
-    controller.abort();
-    clearTimeout(safety);
-    audio.pause();
-    audio.onended = null;
-    audio.onerror = null;
-    audio.onloadedmetadata = null;
-    if (currentUrl) URL.revokeObjectURL(currentUrl);
-  };
-
-  // Satırın sesini al (önbellekte varsa oradan) — başarısızsa yukarı fırlat.
-  currentUrl = await fetchClip(text, controller.signal);
-  if (token.cancelled) {
-    URL.revokeObjectURL(currentUrl);
-    return;
+  for (const clip of preCache.values()) {
+    if (clip.url) URL.revokeObjectURL(clip.url);
   }
-  audio.src = currentUrl;
-
-  // Bir sonraki satırı hemen önden getir → satır bitince boşluk olmasın.
-  prefetchLine(nextText);
-
-  let done = false;
-  const finish = () => {
-    if (done || token.cancelled) return;
-    done = true;
-    clearTimeout(safety);
-    if (currentUrl) URL.revokeObjectURL(currentUrl);
-    onDone();
-  };
-  audio.onended = finish;
-  audio.onerror = finish;
-  // Güvenlik ağı: ses çıkışı takılırsa `ended` gelmeyebilir.
-  const armSafety = (ms: number) => {
-    clearTimeout(safety);
-    safety = window.setTimeout(finish, ms);
-  };
-  armSafety((text.length * 130) / audio.playbackRate + 4000);
-  audio.onloadedmetadata = () => {
-    if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      armSafety((audio.duration / audio.playbackRate) * 1000 + 900);
-    }
-  };
-  void audio.play().catch(finish);
+  preCache.clear();
 }
 
 // ---- Media Session (kilit ekranı kontrolleri + arka plan) ----
@@ -382,13 +325,19 @@ export function speakDoc(
       return;
     }
     fetchClip(text)
-      .then((url) => {
+      .then((clip) => {
         if (token.cancelled) {
-          URL.revokeObjectURL(url);
+          URL.revokeObjectURL(clip.url);
           return;
         }
-        currentUrl = url;
-        audio.src = url;
+        // SES TUTARLILIĞI: premium istendi ama sunucu Google'a düştüyse
+        // (ElevenLabs erişilemez), belgenin KALANI da Google'da kalsın —
+        // satırdan satıra ses değişmesin.
+        if (reqTier === "premium" && clip.provider === "google") {
+          setTtsTier("simple");
+        }
+        currentUrl = clip.url;
+        audio.src = clip.url;
         audio.playbackRate = clampRate;
         const nt = nextText(idx + 1);
         if (nt !== -1) prefetchLine(texts[nt] as string);

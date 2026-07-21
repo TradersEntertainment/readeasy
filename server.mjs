@@ -430,34 +430,52 @@ async function handleTts(req, res, url) {
   ).toString();
   const wantPremium =
     tier === "premium" && PREMIUM_AVAILABLE && pass === PREMIUM_PASSWORD;
-  const providerTag = wantPremium ? "el:" + EL.voice + ":" + EL.model : "google";
+  // "el2": önceki sürümde yedek (Google) sesi yanlışlıkla premium anahtarıyla
+  // önbelleklenebiliyordu; etiket sürümü artırılarak o kayıtlar geçersiz kılındı.
+  const elTag = "el2:" + EL.voice + ":" + EL.model;
+  const gTag = "google";
+  const cachePath = (tag) =>
+    path.join(ttsCacheDir, ttsCacheKey(tag, lang, text) + ".mp3");
 
-  // 1) Önbellek: aynı metin (aynı katman) daha önce seslendirildiyse diskten.
-  const cacheFile = path.join(
-    ttsCacheDir,
-    ttsCacheKey(providerTag, lang, text) + ".mp3",
-  );
+  // 1) Önbellek — SES TUTARLILIĞI: premium istek yalnızca ElevenLabs
+  // önbelleğinden, basit istek yalnızca Google önbelleğinden okur.
+  const primaryTag = wantPremium ? elTag : gTag;
   try {
-    const cached = await fs.readFile(cacheFile);
+    const cached = await fs.readFile(cachePath(primaryTag));
     return sendAudio(res, cached, true, wantPremium ? "elevenlabs" : "google");
   } catch {
     // önbellekte yok → üret
   }
 
-  // 2) Üret: premium → ElevenLabs (olmazsa Google'a düş); değilse Google.
+  // 2) Üret. Premium: ElevenLabs (geçici hataya karşı bir kez daha dene);
+  // ancak o da olmazsa Google'a düş. Ses hangi sağlayıcıdan çıktıysa
+  // SADECE onun anahtarıyla önbelleklenir — katmanlar asla karışmaz.
   let buf = null;
   let provider = "google";
   let lastErr = "";
   if (wantPremium) {
-    try {
-      buf = await synthElevenLabs(text);
-      provider = "elevenlabs";
-    } catch (e) {
-      lastErr = e.message;
-      console.warn("ElevenLabs başarısız, Google'a düşülüyor:", e.message);
+    for (let attempt = 0; attempt < 2 && !buf; attempt++) {
+      try {
+        buf = await synthElevenLabs(text);
+        provider = "elevenlabs";
+      } catch (e) {
+        lastErr = e.message;
+        console.warn(
+          `ElevenLabs başarısız (deneme ${attempt + 1}/2):`,
+          e.message,
+        );
+      }
     }
   }
   if (!buf) {
+    // Google yedeği: varsa google önbelleğinden, yoksa üret.
+    try {
+      buf = await fs.readFile(cachePath(gTag));
+      provider = "google";
+      return sendAudio(res, buf, true, "google", asciiHeader(lastErr));
+    } catch {
+      /* google önbelleğinde de yok */
+    }
     try {
       buf = await synthGoogle(text, lang);
       provider = "google";
@@ -469,8 +487,9 @@ async function handleTts(req, res, url) {
     return sendJson(res, 502, { error: "tts_empty" });
   }
 
-  // 3) Önbelleğe yaz (sonraki isteklerde API harcaması olmasın) ve servis et.
-  fs.writeFile(cacheFile, buf).catch(() => {});
+  // 3) Gerçek üreticinin anahtarıyla önbelleğe yaz ve servis et.
+  const writeTag = provider === "elevenlabs" ? elTag : gTag;
+  fs.writeFile(cachePath(writeTag), buf).catch(() => {});
   sendAudio(res, buf, false, provider, provider !== "elevenlabs" ? lastErr : "");
 }
 

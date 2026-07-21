@@ -928,23 +928,14 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             <button className="chip" onClick={() => startTts("simple")}>
               🔊 Basit okuma <span className="chip__sub">ücretsiz</span>
             </button>
-            {premiumAvail && premiumPass ? (
+            {premiumAvail && premiumPass && (
               <button
                 className="chip chip--on"
                 onClick={() => startTts("premium")}
               >
                 ⭐ Premium okuma <span className="chip__sub">doğal ses</span>
               </button>
-            ) : premiumAvail ? (
-              <button
-                className="chip chip--on"
-                onClick={() => setPanel("voice")}
-                disabled
-                style={{ opacity: 0.5 }}
-              >
-                ⭐ Premium okuma
-              </button>
-            ) : null}
+            )}
           </div>
           {premiumAvail && !premiumPass && (
             <>

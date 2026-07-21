@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lineChars, type Doc } from "../lib/doc";
-import { cancel as ttsCancel, speak as ttsSpeak, ttsAvailable } from "../lib/tts";
+import { cancel as ttsCancel, primeAudio, speakDevice, speakNatural, ttsAvailable } from "../lib/tts";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
 import { loadNotes, loadSettings, saveNotes, saveSettings, updateProgress, type Align, type Notes } from "../lib/storage";
@@ -319,22 +319,27 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       return () => clearTimeout(timer);
     }
     const lineIndex = active;
-    ttsSpeak(
-      line.text,
-      SPEEDS[speedIdx],
-      () => {
-        if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
-        else setTts(false);
-      },
-      (charIndex) => {
-        // söylenen kelimenin sınırlarını bul
-        const rest = line.text.slice(charIndex);
-        const space = rest.search(/\s/);
-        const end = space === -1 ? line.text.length : charIndex + space;
-        if (end > charIndex) setTtsWord({ line: lineIndex, start: charIndex, end });
-      },
-    );
+    let cancelledLocal = false;
+    const advance = () => {
+      if (cancelledLocal) return;
+      if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
+      else setTts(false);
+    };
+    // Karaoke vurgusu yalnızca cihaz sesinde (kelime sınırı olayları var).
+    const onWord = (charIndex: number) => {
+      const rest = line.text.slice(charIndex);
+      const space = rest.search(/\s/);
+      const end = space === -1 ? line.text.length : charIndex + space;
+      if (end > charIndex) setTtsWord({ line: lineIndex, start: charIndex, end });
+    };
+    // Önce doğal (sunucu) sesi dene; erişilemezse cihaz sesine düş.
+    speakNatural(line.text, SPEEDS[speedIdx], advance).catch(() => {
+      if (cancelledLocal) return;
+      if (ttsAvailable()) speakDevice(line.text, SPEEDS[speedIdx], advance, onWord);
+      else advance();
+    });
     return () => {
+      cancelledLocal = true;
       ttsCancel();
       setTtsWord(null);
     };
@@ -1171,6 +1176,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
             onClick={() => {
               thump();
               setPlaying(false);
+              if (!ttsRef.current) primeAudio(); // iOS ses kilidini aç
               setTts((t) => !t);
             }}
             title="Sesli okuma"

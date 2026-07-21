@@ -17,9 +17,11 @@ akış ile metin bir şarkı gibi kayar.
   (PDF'te sayfanın gömülü görselleri çıkarılır; sayfa metninin ardına eklenir)
 - 📊 **Word tabloları** gerçek tablo olarak akışta yer alır (temizlenmiş HTML;
   PDF tabloları şimdilik metin olarak akar — güvenilir tablo tespiti PDF'te yok)
-- 🗣️ **Sesli okuma (TTS)**: tarayıcının yerleşik sesleriyle ücretsiz; okunan
-  satır otomatik kayar. Premium neural TTS için sağlayıcı soketi hazır
-  (`src/lib/tts.ts`)
+- 🗣️ **Sesli okuma (TTS)**: varsayılan **doğal ses** (sunucu, `/api/tts`
+  üzerinden Google Translate TTS'i anahtarsız proxy'ler — Türkçe'de belirgin
+  daha doğal); erişilemezse otomatik olarak **cihaz sesine** (Web Speech,
+  kelime-kelime karaoke vurgusu, çevrimdışı) düşer. iOS ses kilidi buton
+  tıklamasında açılır, klip süresi güvenlik ağıyla satır asla takılmaz
 - 📋 Kopyala-yapıştır ile anında okuma
 - 🔗 **Link'ten okuma**: makale linki ya da **ChatGPT / Claude / Gemini sohbet
   paylaşım linki** yapıştır → içerik çekilip kayışa dönüşür (önce doğrudan,

@@ -142,7 +142,47 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { payload: record.payload });
   }
 
+  // Doğal sesli okuma: Google Translate TTS'i proxy'ler (anahtarsız). Tarayıcı
+  // CORS ve UA kısıtları nedeniyle doğrudan çağıramaz; sunucu araya girer.
+  if (url.pathname === "/api/tts" && req.method === "GET") {
+    return handleTts(res, url);
+  }
+
   return sendJson(res, 404, { error: "not_found" });
+}
+
+const TTS_LANG = /^[a-z]{2}(-[A-Z]{2})?$/;
+
+async function handleTts(res, url) {
+  const text = (url.searchParams.get("text") ?? "").slice(0, 200);
+  const lang = url.searchParams.get("lang") ?? "tr";
+  if (!text.trim() || !TTS_LANG.test(lang)) {
+    return sendJson(res, 400, { error: "bad_request" });
+  }
+  const target =
+    "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob" +
+    `&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
+  try {
+    const upstream = await fetch(target, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        referer: "https://translate.google.com/",
+      },
+    });
+    if (!upstream.ok) return sendJson(res, 502, { error: "upstream" });
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.writeHead(200, {
+      "content-type": "audio/mpeg",
+      "access-control-allow-origin": "*",
+      // aynı satır tekrar okunursa tarayıcı önbelleğinden gelsin
+      "cache-control": "public, max-age=86400",
+    });
+    res.end(buf);
+  } catch {
+    sendJson(res, 502, { error: "tts_failed" });
+  }
 }
 
 // Kayıt hem yeni (JSON) hem eski (düz payload metni) biçimde okunabilir.

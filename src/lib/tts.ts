@@ -35,8 +35,27 @@ export function cancel() {
 // Tek, kalıcı ses öğesi. iOS otomatik oynatmayı yalnızca kullanıcı hareketi
 // içinde açar; primeAudio() bunu buton tıklamasında senkron çağırır.
 let player: HTMLAudioElement | null = null;
-const SILENT =
-  "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA";
+
+// Geçerli, çok kısa sessiz WAV — iOS ses kilidini açmak için yüklenebilir bir
+// kaynak gerekir. Modül yüklenince bir kez üretilir.
+function silentWav(): string {
+  const sr = 8000, n = 400; // ~0.05 sn
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o: number, s: string) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i));
+  };
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE");
+  w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, n * 2, true);
+  let bin = "";
+  const u = new Uint8Array(buf);
+  for (let i = 0; i < u.length; i++) bin += String.fromCharCode(u[i]);
+  return "data:audio/wav;base64," + btoa(bin);
+}
+const SILENT = silentWav();
 
 function getPlayer(): HTMLAudioElement {
   if (!player) {
@@ -50,15 +69,16 @@ function getPlayer(): HTMLAudioElement {
 }
 
 // Buton tıklamasında SENKRON çağrılmalı (özellikle iOS için ses kilidini açar).
+// Sessiz klip kendi kendine biter; GECİKMELİ pause YOK — yoksa hemen ardından
+// çalan asıl sesi durdurabilir (sessiz kalma sebebi buydu).
 export function primeAudio() {
   try {
     const p = getPlayer();
+    p.muted = false;
+    p.volume = 1;
     p.src = SILENT;
-    p.muted = true;
-    void p.play().then(() => {
-      p.pause();
-      p.muted = false;
-    }).catch(() => {});
+    const pr = p.play();
+    if (pr && typeof pr.catch === "function") pr.catch(() => {});
   } catch {
     /* önemsiz */
   }
@@ -105,6 +125,8 @@ export async function speakNatural(
   const chunks = chunkText(text);
   const controller = new AbortController();
   const audio = getPlayer();
+  audio.muted = false;
+  audio.volume = 1;
   audio.playbackRate = Math.min(2, Math.max(0.6, rate));
 
   let currentUrl: string | null = null;

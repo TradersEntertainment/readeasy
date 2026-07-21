@@ -106,10 +106,16 @@ mkdirSync(ttsCacheDir, { recursive: true });
 //   ELEVENLABS_VOICE_ID   ses kimliği (varsayılan: beğenilen ses)
 //   ELEVENLABS_MODEL      model (varsayılan: eleven_multilingual_v2 — Türkçe)
 const EL = {
-  key: process.env.ELEVENLABS_API_KEY || "",
-  voice: process.env.ELEVENLABS_VOICE_ID || "DsbR47WNEv8o9x37ib9X",
-  model: process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
+  key: (process.env.ELEVENLABS_API_KEY || "").trim(),
+  voice: (process.env.ELEVENLABS_VOICE_ID || "DsbR47WNEv8o9x37ib9X").trim(),
+  model: (process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2").trim(),
 };
+// Anahtar ASCII dışı karakter içerirse (ör. yanlış yapıştırmadan Türkçe harf)
+// fetch başlık kodlamasıyla çöker; bunu erken ve anlaşılır biçimde yakala.
+function badChar(s) {
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) > 127) return i;
+  return -1;
+}
 
 // Genel/özel bir sağlayıcı ENV ile de tanımlanabilir (anahtar ASLA kodda değil):
 //   TTS_API_URL, TTS_API_KEY, TTS_HEADER (vars. X-API-Key),
@@ -130,8 +136,21 @@ const ttsProviderTag = EL.key
     ? "paid:" + TTS.voice
     : "google";
 
+function timeoutSignal(ms) {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 // ElevenLabs seslendirme — audio/mpeg baytları döndürür.
 async function synthElevenLabs(text) {
+  const bi = badChar(EL.key);
+  if (bi !== -1) {
+    throw new Error(
+      `ELEVENLABS_API_KEY ASCII dışı karakter içeriyor (konum ${bi}). ` +
+        "Railway'de anahtarı silip ElevenLabs panelinden temiz kopyalayıp yeniden yapıştırın (sk_... ile başlar, hepsi İngilizce harf/rakam).",
+    );
+  }
   const res = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${EL.voice}?output_format=mp3_44100_128`,
     {
@@ -151,11 +170,12 @@ async function synthElevenLabs(text) {
           use_speaker_boost: true,
         },
       }),
+      signal: timeoutSignal(20000),
     },
   );
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`elevenlabs ${res.status} ${detail.slice(0, 120)}`);
+    throw new Error(`elevenlabs ${res.status}: ${detail.slice(0, 160)}`);
   }
   return Buffer.from(await res.arrayBuffer());
 }
@@ -328,13 +348,20 @@ async function handleApi(req, res, url) {
 
 const TTS_LANG = /^[a-z]{2}(-[A-Z]{2})?$/;
 
-function sendAudio(res, buf, cached) {
-  res.writeHead(200, {
+function asciiHeader(s) {
+  return String(s).replace(/[^\x20-\x7E]/g, "?").slice(0, 180);
+}
+
+function sendAudio(res, buf, cached, provider, err) {
+  const headers = {
     "content-type": "audio/mpeg",
     "access-control-allow-origin": "*",
     "cache-control": "public, max-age=604800",
     "x-tts-cache": cached ? "hit" : "miss",
-  });
+    "x-tts-provider": provider || "cache",
+  };
+  if (err) headers["x-tts-error"] = asciiHeader(err);
+  res.writeHead(200, headers);
   res.end(buf);
 }
 
@@ -356,25 +383,32 @@ async function handleTts(res, url) {
 
   // 2) Üret: önce ElevenLabs, sonra genel ücretli sağlayıcı, olmazsa Google.
   let buf = null;
+  let provider = "google";
+  let lastErr = "";
   if (EL.key) {
     try {
       buf = await synthElevenLabs(text);
+      provider = "elevenlabs";
     } catch (e) {
+      lastErr = e.message;
       console.warn("ElevenLabs başarısız, yedeğe düşülüyor:", e.message);
     }
   }
   if (!buf && TTS.url && TTS.key) {
     try {
       buf = await synthPaid(text);
+      provider = "paid";
     } catch (e) {
+      lastErr = e.message;
       console.warn("Ücretli TTS başarısız, Google'a düşülüyor:", e.message);
     }
   }
   if (!buf) {
     try {
       buf = await synthGoogle(text, lang);
+      provider = "google";
     } catch {
-      return sendJson(res, 502, { error: "tts_failed" });
+      return sendJson(res, 502, { error: "tts_failed", detail: asciiHeader(lastErr) });
     }
   }
   if (!buf || buf.length < 200) {
@@ -383,7 +417,7 @@ async function handleTts(res, url) {
 
   // 3) Önbelleğe yaz (sonraki isteklerde API harcaması olmasın) ve servis et.
   fs.writeFile(cacheFile, buf).catch(() => {});
-  sendAudio(res, buf, false);
+  sendAudio(res, buf, false, provider, provider !== "elevenlabs" ? lastErr : "");
 }
 
 // Kayıt hem yeni (JSON) hem eski (düz payload metni) biçimde okunabilir.

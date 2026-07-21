@@ -110,6 +110,16 @@ const EL = {
   voice: (process.env.ELEVENLABS_VOICE_ID || "DsbR47WNEv8o9x37ib9X").trim(),
   model: (process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2").trim(),
 };
+
+// Premium okuma şifresi (Railway'de belirlenir). Premium ses (ElevenLabs)
+// yalnızca tier=premium + doğru şifre ile açılır; aksi halde Basit (Google).
+const PREMIUM_PASSWORD = (
+  process.env.PREMIUM_PASSWORD ||
+  process.env.PREMIUM_TTS_PASSWORD ||
+  ""
+).trim();
+// Premium seçeneği hiç sunulmalı mı? (ses + şifre tanımlıysa)
+const PREMIUM_AVAILABLE = Boolean(EL.key && PREMIUM_PASSWORD);
 // Anahtar ASCII dışı karakter içerirse (ör. yanlış yapıştırmadan Türkçe harf)
 // fetch başlık kodlamasıyla çöker; bunu erken ve anlaşılır biçimde yakala.
 function badChar(s) {
@@ -129,12 +139,6 @@ const TTS = {
   body: process.env.TTS_BODY || '{"text":"{{text}}"}',
   voice: process.env.TTS_VOICE || "",
 };
-
-const ttsProviderTag = EL.key
-  ? "el:" + EL.voice + ":" + EL.model
-  : TTS.url
-    ? "paid:" + TTS.voice
-    : "google";
 
 function timeoutSignal(ms) {
   const c = new AbortController();
@@ -180,10 +184,10 @@ async function synthElevenLabs(text) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-function ttsCacheKey(lang, text) {
+function ttsCacheKey(providerTag, lang, text) {
   return crypto
     .createHash("sha1")
-    .update(ttsProviderTag + "|" + lang + "|" + text)
+    .update(providerTag + "|" + lang + "|" + text)
     .digest("hex");
 }
 
@@ -286,7 +290,7 @@ const API_HEADERS = {
   "content-type": "application/json",
   // Native uygulama (Capacitor) farklı origin'den çağırır
   "access-control-allow-origin": "*",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "content-type, x-tts-pass",
   "access-control-allow-methods": "GET, POST, OPTIONS",
 };
 
@@ -353,7 +357,26 @@ async function handleApi(req, res, url) {
   // Doğal sesli okuma: Google Translate TTS'i proxy'ler (anahtarsız). Tarayıcı
   // CORS ve UA kısıtları nedeniyle doğrudan çağıramaz; sunucu araya girer.
   if (url.pathname === "/api/tts" && req.method === "GET") {
-    return handleTts(res, url);
+    return handleTts(req, res, url);
+  }
+
+  // Premium okuma: seçenek sunulmalı mı? (GET) / şifre doğru mu? (POST)
+  if (url.pathname === "/api/premium-check") {
+    if (req.method === "GET") {
+      return sendJson(res, 200, { available: PREMIUM_AVAILABLE });
+    }
+    if (req.method === "POST") {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      let pass = "";
+      try {
+        pass = String(JSON.parse(Buffer.concat(chunks).toString("utf8")).pass ?? "");
+      } catch {
+        return sendJson(res, 400, { error: "bad_json" });
+      }
+      const ok = PREMIUM_AVAILABLE && pass === PREMIUM_PASSWORD;
+      return sendJson(res, 200, { ok, available: PREMIUM_AVAILABLE });
+    }
   }
 
   // Okuma sayacı (sosyal kanıt).
@@ -391,42 +414,47 @@ function sendAudio(res, buf, cached, provider, err) {
   res.end(buf);
 }
 
-async function handleTts(res, url) {
+async function handleTts(req, res, url) {
   const text = (url.searchParams.get("text") ?? "").slice(0, 600);
   const lang = url.searchParams.get("lang") ?? "tr";
   if (!text.trim() || !TTS_LANG.test(lang)) {
     return sendJson(res, 400, { error: "bad_request" });
   }
 
-  // 1) Önbellek: aynı metin daha önce seslendirildiyse diskten servis et.
-  const cacheFile = path.join(ttsCacheDir, ttsCacheKey(lang, text) + ".mp3");
+  // Premium mi? tier=premium + doğru şifre (başlık ya da sorgu) gerekir.
+  const tier = url.searchParams.get("tier") ?? "simple";
+  const pass = (
+    req.headers["x-tts-pass"] ??
+    url.searchParams.get("pass") ??
+    ""
+  ).toString();
+  const wantPremium =
+    tier === "premium" && PREMIUM_AVAILABLE && pass === PREMIUM_PASSWORD;
+  const providerTag = wantPremium ? "el:" + EL.voice + ":" + EL.model : "google";
+
+  // 1) Önbellek: aynı metin (aynı katman) daha önce seslendirildiyse diskten.
+  const cacheFile = path.join(
+    ttsCacheDir,
+    ttsCacheKey(providerTag, lang, text) + ".mp3",
+  );
   try {
     const cached = await fs.readFile(cacheFile);
-    return sendAudio(res, cached, true);
+    return sendAudio(res, cached, true, wantPremium ? "elevenlabs" : "google");
   } catch {
     // önbellekte yok → üret
   }
 
-  // 2) Üret: önce ElevenLabs, sonra genel ücretli sağlayıcı, olmazsa Google.
+  // 2) Üret: premium → ElevenLabs (olmazsa Google'a düş); değilse Google.
   let buf = null;
   let provider = "google";
   let lastErr = "";
-  if (EL.key) {
+  if (wantPremium) {
     try {
       buf = await synthElevenLabs(text);
       provider = "elevenlabs";
     } catch (e) {
       lastErr = e.message;
-      console.warn("ElevenLabs başarısız, yedeğe düşülüyor:", e.message);
-    }
-  }
-  if (!buf && TTS.url && TTS.key) {
-    try {
-      buf = await synthPaid(text);
-      provider = "paid";
-    } catch (e) {
-      lastErr = e.message;
-      console.warn("Ücretli TTS başarısız, Google'a düşülüyor:", e.message);
+      console.warn("ElevenLabs başarısız, Google'a düşülüyor:", e.message);
     }
   }
   if (!buf) {

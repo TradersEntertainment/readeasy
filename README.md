@@ -147,7 +147,15 @@ değil**):
 ELEVENLABS_API_KEY=<gizli-anahtar>
 ELEVENLABS_VOICE_ID=DsbR47WNEv8o9x37ib9X   # opsiyonel; varsayılan bu ses
 ELEVENLABS_MODEL=eleven_multilingual_v2    # opsiyonel; Türkçe destekli
+PREMIUM_PASSWORD=<belirlediğin-şifre>      # premium okumayı açan şifre
 ```
+
+Kullanıcı 🗣️ butonuna basınca iki seçenek çıkar: **Basit okuma** (Google,
+ücretsiz) ve **Premium okuma** (ElevenLabs). Premium için kullanıcı bir kez
+`PREMIUM_PASSWORD`'ü girer; doğruysa istekler `tier=premium` + `x-tts-pass`
+başlığıyla gider ve sunucu ElevenLabs'i kullanır. Şifre yanlışsa ya da
+`PREMIUM_PASSWORD`/anahtar tanımlı değilse premium kilitli kalır, basit okuma
+her zaman çalışır. Premium ve basit sesler ayrı önbelleklenir.
 
 Alternatif olarak başka bir sağlayıcı da bağlanabilir (`TTS_API_URL`,
 `TTS_API_KEY`, `TTS_HEADER` [vars. X-API-Key], `TTS_CONTENT_TYPE`,

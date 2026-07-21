@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lineChars, type Doc } from "../lib/doc";
-import { cancel as ttsCancel, primeAudio, speakDoc, ttsAvailable } from "../lib/tts";
+import { cancel as ttsCancel, checkPremiumPass, premiumAvailable, primeAudio, setTtsTier, speakDoc } from "../lib/tts";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
 import { loadNotes, loadSettings, saveNotes, saveSettings, updateProgress, type Align, type Notes } from "../lib/storage";
@@ -33,7 +33,7 @@ const ALIGNMENTS: { id: Align; name: string }[] = [
 const STYLE_WINDOW = 14; // aktif satırın etrafında stillenecek satır sayısı
 const READING_CPS = 16; // kalan süre tahmini için ortalama karakter/saniye
 
-type Panel = "none" | "sound" | "theme" | "share" | "chat";
+type Panel = "none" | "sound" | "theme" | "share" | "chat" | "voice";
 
 // Bionic okuma: her kelimenin ilk ~%40'ı kalın — göz kelimeyi yarım
 // görüp beynin tamamlamasına izin verir, odaklanmayı kolaylaştırır.
@@ -81,6 +81,17 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
   const [tts, setTts] = useState(false);
   const ttsRef = useRef(false);
   ttsRef.current = tts;
+  const [ttsMode, setTtsMode] = useState<"simple" | "premium">("simple");
+  const [premiumAvail, setPremiumAvail] = useState(false);
+  const [premiumPass, setPremiumPass] = useState<string>(
+    () => localStorage.getItem("readeasy:ttspass") ?? "",
+  );
+  const [passInput, setPassInput] = useState("");
+  const [passErr, setPassErr] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  useEffect(() => {
+    void premiumAvailable().then(setPremiumAvail);
+  }, []);
   const [bionic, setBionic] = useState(settings.bionic);
   // Karaoke: TTS'in o an söylediği kelimenin konumu (satır + karakter aralığı)
   const [ttsWord, setTtsWord] = useState<{ line: number; start: number; end: number } | null>(null);
@@ -311,6 +322,7 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       setTtsWord(null);
       return;
     }
+    setTtsTier(ttsMode, ttsMode === "premium" ? premiumPass : "");
     const texts = lines.map((l) => (l.kind === "text" ? l.text : null));
     speakDoc(texts, activeRef.current, SPEEDS[speedIdx], {
       title: doc.title,
@@ -325,7 +337,43 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       ttsCancel();
       setTtsWord(null);
     };
-  }, [tts, speedIdx, lines, doc.title, goTo]);
+  }, [tts, speedIdx, lines, doc.title, goTo, ttsMode, premiumPass]);
+
+  // Seçilen katmanla sesli okumayı başlat.
+  const startTts = (mode: "simple" | "premium", pass = "") => {
+    thump();
+    primeAudio(); // iOS ses kilidini kullanıcı hareketi içinde aç
+    setPlaying(false);
+    setTtsMode(mode);
+    setPanel("none");
+    setTts(true);
+    void pass; // pass, premiumPass state'ine kaydedildikten sonra kullanılır
+  };
+
+  const startPremium = async () => {
+    if (premiumPass) {
+      startTts("premium");
+      return;
+    }
+    const p = passInput.trim();
+    if (!p) return;
+    setChecking(true);
+    setPassErr(null);
+    const ok = await checkPremiumPass(p);
+    setChecking(false);
+    if (ok) {
+      try {
+        localStorage.setItem("readeasy:ttspass", p);
+      } catch {
+        /* önemsiz */
+      }
+      setPremiumPass(p);
+      setPassInput("");
+      startTts("premium", p);
+    } else {
+      setPassErr("Şifre yanlış. Railway'de belirlediğin premium şifresini gir.");
+    }
+  };
 
   useEffect(() => {
     const onFsChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -873,6 +921,77 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         </div>
       </div>
 
+      {panel === "voice" && (
+        <div className="panel">
+          <span className="panel__title">🗣️ Sesli okuma</span>
+          <div className="chips">
+            <button className="chip" onClick={() => startTts("simple")}>
+              🔊 Basit okuma <span className="chip__sub">ücretsiz</span>
+            </button>
+            {premiumAvail && premiumPass ? (
+              <button
+                className="chip chip--on"
+                onClick={() => startTts("premium")}
+              >
+                ⭐ Premium okuma <span className="chip__sub">doğal ses</span>
+              </button>
+            ) : premiumAvail ? (
+              <button
+                className="chip chip--on"
+                onClick={() => setPanel("voice")}
+                disabled
+                style={{ opacity: 0.5 }}
+              >
+                ⭐ Premium okuma
+              </button>
+            ) : null}
+          </div>
+          {premiumAvail && !premiumPass && (
+            <>
+              <span className="panel__title">⭐ Premium için şifre</span>
+              <div className="chat__inputRow">
+                <input
+                  className="panel__input"
+                  type="password"
+                  placeholder="Premium şifresi…"
+                  value={passInput}
+                  onChange={(e) => setPassInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void startPremium();
+                  }}
+                />
+                <button
+                  className="chip chip--on"
+                  disabled={checking || !passInput.trim()}
+                  onClick={() => void startPremium()}
+                >
+                  {checking ? "…" : "Aç"}
+                </button>
+              </div>
+              {passErr && <p className="home__error">{passErr}</p>}
+              <p className="panel__hint">
+                Premium okuma çok daha doğal bir sesle (ElevenLabs) okur. Şifreyi
+                yöneticiden al; bir kez girmen yeterli.
+              </p>
+            </>
+          )}
+          {premiumPass && (
+            <p className="panel__hint">
+              ⭐ Premium açık.{" "}
+              <button
+                className="linkBtn"
+                onClick={() => {
+                  localStorage.removeItem("readeasy:ttspass");
+                  setPremiumPass("");
+                }}
+              >
+                Şifreyi kaldır
+              </button>
+            </p>
+          )}
+        </div>
+      )}
+
       {panel === "chat" && (
         <div className="panel panel--chat">
           <span className="panel__title">💬 Okuduğunla ilgili sohbet</span>
@@ -1152,20 +1271,21 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
         >
           {soundMeta ? soundMeta.emoji : "🎧"}
         </button>
-        {ttsAvailable() && (
-          <button
-            className={`iconBtn ${tts ? "iconBtn--live" : ""}`}
-            onClick={() => {
-              thump();
-              setPlaying(false);
-              if (!ttsRef.current) primeAudio(); // iOS ses kilidini aç
-              setTts((t) => !t);
-            }}
-            title="Sesli okuma"
-          >
-            🗣️
-          </button>
-        )}
+        <button
+          className={`iconBtn ${tts ? "iconBtn--live" : ""}`}
+          onClick={() => {
+            thump();
+            if (ttsRef.current) {
+              setTts(false);
+            } else {
+              setPassErr(null);
+              setPanel((p) => (p === "voice" ? "none" : "voice"));
+            }
+          }}
+          title="Sesli okuma"
+        >
+          🗣️
+        </button>
         {hasText && (
           <button
             className="iconBtn"

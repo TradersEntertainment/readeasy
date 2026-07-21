@@ -99,18 +99,58 @@ export function primeAudio() {
 // bekletilir — böylece satırlar arası boşluk (dura dura okuma) ortadan kalkar.
 // Metin, sunucuya TEK parça gider; Google'ın 200 karakter sınırını sunucu
 // kendi içinde bölerek halleder.
-const preCache = new Map<string, string>(); // metin -> blobURL
+const preCache = new Map<string, string>(); // "tier|metin" -> blobURL
+
+// Okuma katmanı: "simple" (Google) ya da "premium" (ElevenLabs, şifreyle).
+let reqTier: "simple" | "premium" = "simple";
+let reqPass = "";
+export function setTtsTier(tier: "simple" | "premium", pass = "") {
+  reqTier = tier;
+  reqPass = pass;
+}
+function keyOf(text: string) {
+  return reqTier + "|" + text;
+}
+function ttsUrl(text: string) {
+  return `${API_BASE}/api/tts?lang=tr&tier=${reqTier}&text=${encodeURIComponent(text)}`;
+}
+function ttsInit(signal?: AbortSignal): RequestInit {
+  const init: RequestInit = {};
+  if (signal) init.signal = signal;
+  if (reqTier === "premium" && reqPass) init.headers = { "x-tts-pass": reqPass };
+  return init;
+}
+
+// Premium seçeneği sunulmalı mı? (sunucuda ses + şifre tanımlı mı)
+export async function premiumAvailable(): Promise<boolean> {
+  try {
+    const r = await fetch(`${API_BASE}/api/premium-check`);
+    return r.ok ? Boolean((await r.json()).available) : false;
+  } catch {
+    return false;
+  }
+}
+// Girilen şifre doğru mu?
+export async function checkPremiumPass(pass: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${API_BASE}/api/premium-check`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pass }),
+    });
+    return r.ok ? Boolean((await r.json()).ok) : false;
+  } catch {
+    return false;
+  }
+}
 
 async function fetchClip(text: string, signal?: AbortSignal): Promise<string> {
-  const hit = preCache.get(text);
+  const hit = preCache.get(keyOf(text));
   if (hit) {
-    preCache.delete(text);
+    preCache.delete(keyOf(text));
     return hit;
   }
-  const res = await fetch(
-    `${API_BASE}/api/tts?lang=tr&text=${encodeURIComponent(text)}`,
-    signal ? { signal } : {},
-  );
+  const res = await fetch(ttsUrl(text), ttsInit(signal));
   if (!res.ok) throw new Error(`tts ${res.status}`);
   const blob = await res.blob();
   if (!blob.type.startsWith("audio")) throw new Error("not audio");
@@ -119,16 +159,18 @@ async function fetchClip(text: string, signal?: AbortSignal): Promise<string> {
 
 // Sonraki satırı arka planda getir, önbelleğe koy (ateşle-unut).
 function prefetchLine(text?: string) {
-  if (!text || preCache.has(text)) return;
-  preCache.set(text, ""); // yer tut (çift indirmeyi önle)
-  fetch(`${API_BASE}/api/tts?lang=tr&text=${encodeURIComponent(text)}`)
+  if (!text) return;
+  const k = keyOf(text);
+  if (preCache.has(k)) return;
+  preCache.set(k, ""); // yer tut (çift indirmeyi önle)
+  fetch(ttsUrl(text), ttsInit())
     .then(async (r) => {
       if (!r.ok) throw new Error();
       const b = await r.blob();
       if (!b.type.startsWith("audio")) throw new Error();
-      preCache.set(text, URL.createObjectURL(b));
+      preCache.set(k, URL.createObjectURL(b));
     })
-    .catch(() => preCache.delete(text));
+    .catch(() => preCache.delete(k));
 }
 
 function clearPreCache() {

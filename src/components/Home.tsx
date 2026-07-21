@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { extractFromFile, type Extracted } from "../lib/extract";
 import { ocrImages } from "../lib/ocr";
 import { listLibrary, removeFromLibrary } from "../lib/storage";
@@ -56,12 +56,15 @@ export default function Home({ onOpen, onResume }: Props) {
               "Fotoğrafta okunabilir metin bulunamadı. Daha net, iyi aydınlatılmış bir kare deneyin.",
             );
           }
-          onOpen(
+          const single = images[0].name.replace(/\.[^.]+$/, "").trim();
+          const title =
             images.length > 1
               ? `Taranan metin (${images.length} sayfa)`
-              : images[0].name.replace(/\.[^.]+$/, ""),
-            [{ kind: "text", text }],
-          );
+              : // panodan gelen görsellerin adı çoğu zaman generic olur
+                !single || /^(image|screenshot|görüntü|photo|resim|ekran)/i.test(single)
+                ? "Ekran görüntüsü"
+                : single;
+          onOpen(title, [{ kind: "text", text }]);
           return;
         }
         const file = files[0];
@@ -108,6 +111,29 @@ export default function Home({ onOpen, onResume }: Props) {
     },
     [openFiles],
   );
+
+  // Ctrl/Cmd+V ile görsel yapıştır → OCR. Sayfanın herhangi bir yerinde
+  // çalışır. Pano'da resim yoksa (düz metin yapıştırma) karışmaz.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (busy) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const images: File[] = [];
+      for (const item of items) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) images.push(file);
+        }
+      }
+      if (images.length > 0) {
+        e.preventDefault();
+        void openFiles(images);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [busy, openFiles]);
 
   return (
     <div
@@ -206,7 +232,7 @@ export default function Home({ onOpen, onResume }: Props) {
 
         <textarea
           className="home__textarea"
-          placeholder="Metnini buraya yapıştır…"
+          placeholder="Metnini buraya yapıştır… (ekran görüntüsünü de Ctrl/⌘+V ile yapıştırabilirsin)"
           value={text}
           onChange={(e) => setText(e.target.value)}
           spellCheck={false}
@@ -247,10 +273,10 @@ export default function Home({ onOpen, onResume }: Props) {
         {error && <p className="home__error">{error}</p>}
 
         <p className="home__hint">
-          Dosya ya da fotoğrafları bu sayfanın herhangi bir yerine sürükleyip
-          bırakabilirsin; birden çok fotoğraf tek belge olarak birleşir.
-          Dosyalar ve fotoğraflar cihazında işlenir, hiçbir sunucuya
-          gönderilmez.
+          Dosya ya da fotoğrafları bu sayfaya sürükleyip bırakabilir, hatta bir
+          ekran görüntüsünü <kbd>Ctrl/⌘</kbd>+<kbd>V</kbd> ile doğrudan
+          yapıştırabilirsin; birden çok görsel tek belge olarak birleşir.
+          Her şey cihazında işlenir, hiçbir sunucuya gönderilmez.
         </p>
 
         <input

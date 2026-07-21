@@ -717,6 +717,15 @@ button {
   font-size: 0.92rem;
 }
 
+.home__hint kbd {
+  font-family: inherit;
+  font-size: 0.78em;
+  padding: 0.05em 0.4em;
+  border-radius: 5px;
+  background: rgba(var(--ink-rgb), 0.1);
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+}
+
 /* ---------- Bionic okuma ---------- */
 
 .line b {

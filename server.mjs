@@ -100,15 +100,21 @@ function readPingAllowed(ip) {
 const ttsCacheDir = path.join(dataDir, "ttscache");
 mkdirSync(ttsCacheDir, { recursive: true });
 
-// Ücretli sağlayıcı ENV ile tanımlanır (anahtar ASLA kodda değil):
-//   TTS_API_URL      örn. https://api-tts.knowlez.com/v1/tts/synthesise
-//   TTS_API_KEY      gizli anahtar
-//   TTS_HEADER       anahtar başlığı adı (varsayılan: X-API-Key)
-//   TTS_CONTENT_TYPE gövde tipi (varsayılan: application/json)
-//   TTS_BODY         gövde şablonu; {{text}} yerine metin gelir. Docs'taki
-//                    örnek gövdeyi buraya koyun. Örn:
-//                    {"text":"{{text}}","voice":"tr-TR-Emel","format":"mp3"}
-//   TTS_VOICE        önbellek anahtarına katılan ses kimliği (opsiyonel)
+// ElevenLabs (birinci sınıf, önerilen). Sadece anahtar gerekir; ses ve model
+// varsayılanları aşağıdadır, ENV ile değiştirilebilir. Anahtar ASLA kodda değil.
+//   ELEVENLABS_API_KEY    gizli anahtar (yalnızca bu tanımlıysa devreye girer)
+//   ELEVENLABS_VOICE_ID   ses kimliği (varsayılan: beğenilen ses)
+//   ELEVENLABS_MODEL      model (varsayılan: eleven_multilingual_v2 — Türkçe)
+const EL = {
+  key: process.env.ELEVENLABS_API_KEY || "",
+  voice: process.env.ELEVENLABS_VOICE_ID || "DsbR47WNEv8o9x37ib9X",
+  model: process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
+};
+
+// Genel/özel bir sağlayıcı ENV ile de tanımlanabilir (anahtar ASLA kodda değil):
+//   TTS_API_URL, TTS_API_KEY, TTS_HEADER (vars. X-API-Key),
+//   TTS_CONTENT_TYPE (vars. application/json),
+//   TTS_BODY (gövde şablonu; {{text}} yerine metin gelir), TTS_VOICE
 const TTS = {
   url: process.env.TTS_API_URL || "",
   key: process.env.TTS_API_KEY || "",
@@ -117,7 +123,42 @@ const TTS = {
   body: process.env.TTS_BODY || '{"text":"{{text}}"}',
   voice: process.env.TTS_VOICE || "",
 };
-const ttsProviderTag = TTS.url ? "paid:" + TTS.voice : "google";
+
+const ttsProviderTag = EL.key
+  ? "el:" + EL.voice + ":" + EL.model
+  : TTS.url
+    ? "paid:" + TTS.voice
+    : "google";
+
+// ElevenLabs seslendirme — audio/mpeg baytları döndürür.
+async function synthElevenLabs(text) {
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${EL.voice}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": EL.key,
+        "content-type": "application/json",
+        accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: EL.model,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.8,
+          style: 0.0,
+          use_speaker_boost: true,
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`elevenlabs ${res.status} ${detail.slice(0, 120)}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
 
 function ttsCacheKey(lang, text) {
   return crypto
@@ -313,9 +354,16 @@ async function handleTts(res, url) {
     // önbellekte yok → üret
   }
 
-  // 2) Üret: önce ücretli sağlayıcı (tanımlıysa), olmazsa Google yedeği.
+  // 2) Üret: önce ElevenLabs, sonra genel ücretli sağlayıcı, olmazsa Google.
   let buf = null;
-  if (TTS.url && TTS.key) {
+  if (EL.key) {
+    try {
+      buf = await synthElevenLabs(text);
+    } catch (e) {
+      console.warn("ElevenLabs başarısız, yedeğe düşülüyor:", e.message);
+    }
+  }
+  if (!buf && TTS.url && TTS.key) {
     try {
       buf = await synthPaid(text);
     } catch (e) {

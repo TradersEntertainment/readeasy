@@ -139,22 +139,21 @@ doğrulanır (görsel kaynak şeması kısıtlanır, tablo HTML'i yeniden temizl
 ## Sesli Okuma Sağlayıcısı (isteğe bağlı, önbellekli)
 
 Varsayılan doğal ses, sunucudaki `/api/tts` üzerinden Google Translate TTS'i
-anahtarsız kullanır. Daha kaliteli bir ücretli TTS bağlamak için Railway
-ortam değişkenlerini ekleyin (anahtar **asla kodda değil**, yalnızca burada):
+anahtarsız kullanır. **ElevenLabs** (önerilen, Türkçe'de yüksek kalite) için
+Railway ortam değişkenlerine yalnızca anahtarı ekleyin (anahtar **asla kodda
+değil**):
 
 ```
-TTS_API_URL=https://.../v1/tts/synthesise
-TTS_API_KEY=<gizli-anahtar>
-TTS_HEADER=X-API-Key                 # anahtar başlığı adı (varsayılan)
-TTS_CONTENT_TYPE=application/json    # gövde tipi (varsayılan)
-TTS_BODY={"text":"{{text}}","voice":"..."}   # docs'taki gövde; {{text}} = metin
-TTS_VOICE=tr-TR-...                  # önbellek anahtarına katılan ses kimliği
+ELEVENLABS_API_KEY=<gizli-anahtar>
+ELEVENLABS_VOICE_ID=DsbR47WNEv8o9x37ib9X   # opsiyonel; varsayılan bu ses
+ELEVENLABS_MODEL=eleven_multilingual_v2    # opsiyonel; Türkçe destekli
 ```
 
-`TTS_BODY`, sağlayıcının dokümanındaki istek gövdesidir; `{{text}}` yerine
-okunacak metin (JSON-escape edilerek) konur. Yanıt ham ses ya da
-JSON (base64/url) olabilir; ikisi de otomatik ele alınır. Ücretli çağrı
-başarısız olursa Google yedeğine düşülür.
+Alternatif olarak başka bir sağlayıcı da bağlanabilir (`TTS_API_URL`,
+`TTS_API_KEY`, `TTS_HEADER` [vars. X-API-Key], `TTS_CONTENT_TYPE`,
+`TTS_BODY` [`{{text}}` yer tutuculu gövde şablonu], `TTS_VOICE`). Yanıt ham
+ses ya da JSON (base64/url) olabilir. Öncelik: ElevenLabs → genel sağlayıcı →
+Google yedeği; herhangi biri başarısız olursa bir sonrakine düşülür.
 
 **Önbellek:** her seslendirme `/data/ttscache/<hash>.mp3` olarak saklanır.
 Aynı metin (aynı sesle) tekrar istendiğinde — ör. paylaşılan bir belgeyi

@@ -25,6 +25,7 @@ export function cancel() {
     activeCancel();
     activeCancel = null;
   }
+  clearPreCache();
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     window.speechSynthesis.cancel();
   }
@@ -84,27 +85,21 @@ export function primeAudio() {
   }
 }
 
-// Google TTS ~200 karakter sınırı: kelime sınırından böl.
-function chunkText(text: string, max = 190): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const chunks: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    if (cur && (cur + " " + w).length > max) {
-      chunks.push(cur);
-      cur = w;
-    } else {
-      cur = cur ? cur + " " + w : w;
-    }
-  }
-  if (cur) chunks.push(cur);
-  return chunks.length ? chunks : [text.slice(0, max)];
-}
+// Bir sonraki satırın sesi, mevcut satır çalarken önden indirilip burada
+// bekletilir — böylece satırlar arası boşluk (dura dura okuma) ortadan kalkar.
+// Metin, sunucuya TEK parça gider; Google'ın 200 karakter sınırını sunucu
+// kendi içinde bölerek halleder.
+const preCache = new Map<string, string>(); // metin -> blobURL
 
-async function fetchClip(text: string, signal: AbortSignal): Promise<string> {
+async function fetchClip(text: string, signal?: AbortSignal): Promise<string> {
+  const hit = preCache.get(text);
+  if (hit) {
+    preCache.delete(text);
+    return hit;
+  }
   const res = await fetch(
     `${API_BASE}/api/tts?lang=tr&text=${encodeURIComponent(text)}`,
-    { signal },
+    signal ? { signal } : {},
   );
   if (!res.ok) throw new Error(`tts ${res.status}`);
   const blob = await res.blob();
@@ -112,17 +107,36 @@ async function fetchClip(text: string, signal: AbortSignal): Promise<string> {
   return URL.createObjectURL(blob);
 }
 
-// Doğal sesle bir satırı okur. İlk parça alınamazsa hata fırlatır (çağıran
-// cihaz sesine düşer). Başladıysa satır bitince onDone çağrılır.
+// Sonraki satırı arka planda getir, önbelleğe koy (ateşle-unut).
+function prefetchLine(text?: string) {
+  if (!text || preCache.has(text)) return;
+  preCache.set(text, ""); // yer tut (çift indirmeyi önle)
+  fetch(`${API_BASE}/api/tts?lang=tr&text=${encodeURIComponent(text)}`)
+    .then(async (r) => {
+      if (!r.ok) throw new Error();
+      const b = await r.blob();
+      if (!b.type.startsWith("audio")) throw new Error();
+      preCache.set(text, URL.createObjectURL(b));
+    })
+    .catch(() => preCache.delete(text));
+}
+
+function clearPreCache() {
+  for (const url of preCache.values()) if (url) URL.revokeObjectURL(url);
+  preCache.clear();
+}
+
+// Doğal sesle bir satırı okur ve BİR SONRAKİ satırı önden indirir. Klip
+// alınamazsa hata fırlatır (çağıran cihaz sesine düşer). Bitince onDone.
 export async function speakNatural(
   text: string,
   rate: number,
   onDone: () => void,
+  nextText?: string,
 ): Promise<void> {
   cancel();
   const token = { cancelled: false };
   cancelledToken = token;
-  const chunks = chunkText(text);
   const controller = new AbortController();
   const audio = getPlayer();
   audio.muted = false;
@@ -142,59 +156,39 @@ export async function speakNatural(
     if (currentUrl) URL.revokeObjectURL(currentUrl);
   };
 
-  // İlk parçayı önden çek — başarısızsa yukarı fırlat (yedek devreye girsin).
-  let nextUrl = await fetchClip(chunks[0], controller.signal);
+  // Satırın sesini al (önbellekte varsa oradan) — başarısızsa yukarı fırlat.
+  currentUrl = await fetchClip(text, controller.signal);
+  if (token.cancelled) {
+    URL.revokeObjectURL(currentUrl);
+    return;
+  }
+  audio.src = currentUrl;
 
-  let i = 0;
-  const playCurrent = () => {
-    if (token.cancelled) return;
-    currentUrl = nextUrl;
-    audio.src = currentUrl;
-    const chars = chunks[i].length;
-    const prefetch =
-      i + 1 < chunks.length
-        ? fetchClip(chunks[i + 1], controller.signal).catch(() => null)
-        : Promise.resolve(null);
+  // Bir sonraki satırı hemen önden getir → satır bitince boşluk olmasın.
+  prefetchLine(nextText);
 
-    let advanced = false;
-    const finishChunk = () => {
-      if (advanced || token.cancelled) return;
-      advanced = true;
-      clearTimeout(safety);
-      if (currentUrl) URL.revokeObjectURL(currentUrl);
-      i++;
-      if (i >= chunks.length) {
-        onDone();
-        return;
-      }
-      void prefetch.then((url) => {
-        if (token.cancelled) return;
-        if (!url) {
-          onDone(); // sonraki parça alınamadı → satırı bitmiş say
-          return;
-        }
-        nextUrl = url;
-        playCurrent();
-      });
-    };
-
-    audio.onended = finishChunk;
-    audio.onerror = finishChunk;
-    // Güvenlik ağı: ses çıkışı yoksa/ takılırsa `ended` gelmeyebilir. Klip
-    // süresi belliyse ona, değilse karakter sayısına göre yine de ilerle.
-    const armSafety = (ms: number) => {
-      clearTimeout(safety);
-      safety = window.setTimeout(finishChunk, ms);
-    };
-    armSafety((chars * 130) / audio.playbackRate + 4000); // kaba üst sınır
-    audio.onloadedmetadata = () => {
-      if (Number.isFinite(audio.duration) && audio.duration > 0) {
-        armSafety((audio.duration / audio.playbackRate) * 1000 + 1200);
-      }
-    };
-    void audio.play().catch(finishChunk);
+  let done = false;
+  const finish = () => {
+    if (done || token.cancelled) return;
+    done = true;
+    clearTimeout(safety);
+    if (currentUrl) URL.revokeObjectURL(currentUrl);
+    onDone();
   };
-  playCurrent();
+  audio.onended = finish;
+  audio.onerror = finish;
+  // Güvenlik ağı: ses çıkışı takılırsa `ended` gelmeyebilir.
+  const armSafety = (ms: number) => {
+    clearTimeout(safety);
+    safety = window.setTimeout(finish, ms);
+  };
+  armSafety((text.length * 130) / audio.playbackRate + 4000);
+  audio.onloadedmetadata = () => {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      armSafety((audio.duration / audio.playbackRate) * 1000 + 900);
+    }
+  };
+  void audio.play().catch(finish);
 }
 
 // ---- cihaz sesi (Web Speech) ----

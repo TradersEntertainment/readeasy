@@ -223,8 +223,9 @@ function jsonEscape(s) {
   return JSON.stringify(s).slice(1, -1);
 }
 
-// Google Translate TTS (anahtarsız yedek).
-async function synthGoogle(text, lang) {
+// Google Translate TTS (anahtarsız yedek). ~200 karakter sınırı vardır;
+// uzun metni kelime sınırından bölüp parçaları arka arkaya birleştirir.
+async function synthGoogleChunk(text, lang) {
   const target =
     "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob" +
     `&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
@@ -235,9 +236,34 @@ async function synthGoogle(text, lang) {
         "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
       referer: "https://translate.google.com/",
     },
+    signal: timeoutSignal(20000),
   });
   if (!res.ok) throw new Error("google tts " + res.status);
   return Buffer.from(await res.arrayBuffer());
+}
+
+function splitForGoogle(text, max = 190) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const out = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur && (cur + " " + w).length > max) {
+      out.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? cur + " " + w : w;
+    }
+  }
+  if (cur) out.push(cur);
+  return out.length ? out : [text.slice(0, max)];
+}
+
+async function synthGoogle(text, lang) {
+  const parts = splitForGoogle(text);
+  if (parts.length === 1) return synthGoogleChunk(parts[0], lang);
+  const bufs = [];
+  for (const p of parts) bufs.push(await synthGoogleChunk(p, lang));
+  return Buffer.concat(bufs); // MP3 çerçeveleri arka arkaya sorunsuz çalar
 }
 
 const MIME = {
@@ -366,7 +392,7 @@ function sendAudio(res, buf, cached, provider, err) {
 }
 
 async function handleTts(res, url) {
-  const text = (url.searchParams.get("text") ?? "").slice(0, 300);
+  const text = (url.searchParams.get("text") ?? "").slice(0, 600);
   const lang = url.searchParams.get("lang") ?? "tr";
   if (!text.trim() || !TTS_LANG.test(lang)) {
     return sendJson(res, 400, { error: "bad_request" });

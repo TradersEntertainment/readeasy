@@ -332,8 +332,12 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
       const end = space === -1 ? line.text.length : charIndex + space;
       if (end > charIndex) setTtsWord({ line: lineIndex, start: charIndex, end });
     };
+    // Sonraki metin satırını önden indir → satırlar arası boşluk olmasın.
+    const nextLine = lines
+      .slice(active + 1)
+      .find((l) => l.kind === "text") as { text: string } | undefined;
     // Önce doğal (sunucu) sesi dene; erişilemezse cihaz sesine düş.
-    speakNatural(line.text, SPEEDS[speedIdx], advance).catch(() => {
+    speakNatural(line.text, SPEEDS[speedIdx], advance, nextLine?.text).catch(() => {
       if (cancelledLocal) return;
       if (ttsAvailable()) speakDevice(line.text, SPEEDS[speedIdx], advance, onWord);
       else advance();

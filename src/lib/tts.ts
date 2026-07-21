@@ -14,6 +14,16 @@ const API_BASE = (import.meta.env.VITE_SHARE_API_URL ?? "").replace(/\/+$/, "");
 
 let cancelledToken = { cancelled: false };
 let activeCancel: (() => void) | null = null;
+let activePause: (() => void) | null = null;
+let activeResume: (() => void) | null = null;
+
+// Kilit ekranı / harici kontroller
+export function pauseAudio() {
+  activePause?.();
+}
+export function resumeAudio() {
+  activeResume?.();
+}
 
 export function ttsAvailable(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
@@ -189,6 +199,236 @@ export async function speakNatural(
     }
   };
   void audio.play().catch(finish);
+}
+
+// ---- Media Session (kilit ekranı kontrolleri + arka plan) ----
+
+interface MediaHandlers {
+  play: () => void;
+  pause: () => void;
+  next: () => void;
+  prev: () => void;
+}
+
+function setupMediaSession(title: string, h: MediaHandlers) {
+  const ms = (navigator as Navigator & { mediaSession?: MediaSession })
+    .mediaSession;
+  if (!ms) return;
+  try {
+    ms.metadata = new MediaMetadata({
+      title,
+      artist: "ReadEasy",
+      artwork: [
+        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      ],
+    });
+    ms.setActionHandler("play", h.play);
+    ms.setActionHandler("pause", h.pause);
+    ms.setActionHandler("nexttrack", h.next);
+    ms.setActionHandler("previoustrack", h.prev);
+    ms.playbackState = "playing";
+  } catch {
+    /* desteklenmiyorsa yok say */
+  }
+}
+
+function clearMediaSession() {
+  const ms = (navigator as Navigator & { mediaSession?: MediaSession })
+    .mediaSession;
+  if (!ms) return;
+  try {
+    (["play", "pause", "nexttrack", "previoustrack"] as const).forEach((a) =>
+      ms.setActionHandler(a, null),
+    );
+    ms.playbackState = "none";
+  } catch {
+    /* yok say */
+  }
+}
+
+function setMediaState(state: "playing" | "paused") {
+  const ms = (navigator as Navigator & { mediaSession?: MediaSession })
+    .mediaSession;
+  if (ms) {
+    try {
+      ms.playbackState = state;
+    } catch {
+      /* yok say */
+    }
+  }
+}
+
+// ---- Belge kuyruğu: satırları arka arkaya, React'ten bağımsız çalar ----
+// Arka planda (başka uygulamaya geçince / kilit ekranında) da devam edebilmesi
+// için satır geçişi tamamen bu motorda döner; görsel (vurgu/scroll) yalnızca
+// onLine ile takip eder. text[i] === null → görsel/tablo (kısa duraklama).
+
+export interface SpeakDocOpts {
+  title: string;
+  onLine: (index: number) => void;
+  onWord?: (line: number, start: number, end: number) => void;
+  onEnd: () => void;
+}
+
+export function speakDoc(
+  texts: (string | null)[],
+  start: number,
+  rate: number,
+  opts: SpeakDocOpts,
+) {
+  cancel();
+  const token = { cancelled: false };
+  cancelledToken = token;
+  const audio = getPlayer();
+  audio.muted = false;
+  audio.volume = 1;
+  const clampRate = Math.min(2, Math.max(0.6, rate));
+
+  let i = start;
+  let paused = false;
+  let currentUrl: string | null = null;
+  let safety = 0;
+  const clearSafety = () => clearTimeout(safety);
+  const revoke = () => {
+    if (currentUrl) {
+      URL.revokeObjectURL(currentUrl);
+      currentUrl = null;
+    }
+  };
+  const nextText = (from: number) => {
+    for (let k = from; k < texts.length; k++) if (texts[k] !== null) return k;
+    return -1;
+  };
+  const prevText = (from: number) => {
+    for (let k = from; k >= 0; k--) if (texts[k] !== null) return k;
+    return -1;
+  };
+
+  activeCancel = () => {
+    token.cancelled = true;
+    clearSafety();
+    audio.pause();
+    audio.onended = null;
+    audio.onerror = null;
+    audio.onloadedmetadata = null;
+    revoke();
+    activePause = null;
+    activeResume = null;
+    clearMediaSession();
+  };
+
+  const finishLine = () => {
+    if (token.cancelled) return;
+    clearSafety();
+    revoke();
+    playAt(i + 1);
+  };
+
+  const playAt = (idx: number) => {
+    if (token.cancelled) return;
+    i = idx;
+    if (idx >= texts.length) {
+      opts.onEnd();
+      clearMediaSession();
+      return;
+    }
+    opts.onLine(idx);
+    const text = texts[idx];
+    if (text === null) {
+      safety = window.setTimeout(finishLine, 1600); // görsel/tablo duraklaması
+      return;
+    }
+    fetchClip(text)
+      .then((url) => {
+        if (token.cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        currentUrl = url;
+        audio.src = url;
+        audio.playbackRate = clampRate;
+        const nt = nextText(idx + 1);
+        if (nt !== -1) prefetchLine(texts[nt] as string);
+        let advanced = false;
+        const done = () => {
+          if (advanced || token.cancelled) return;
+          advanced = true;
+          finishLine();
+        };
+        audio.onended = done;
+        audio.onerror = done;
+        const arm = (ms: number) => {
+          clearSafety();
+          safety = window.setTimeout(done, ms);
+        };
+        arm((text.length * 130) / clampRate + 4000);
+        audio.onloadedmetadata = () => {
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            arm((audio.duration / clampRate) * 1000 + 900);
+          }
+        };
+        if (!paused) void audio.play().catch(done);
+        setMediaState(paused ? "paused" : "playing");
+      })
+      .catch(() => {
+        // doğal ses alınamadı → cihaz sesine düş (o satır için)
+        if (token.cancelled) return;
+        if (ttsAvailable()) {
+          speakDevice(text, clampRate, finishLine, (ci) => {
+            const rest = text.slice(ci);
+            const sp = rest.search(/\s/);
+            const end = sp === -1 ? text.length : ci + sp;
+            if (end > ci) opts.onWord?.(idx, ci, end);
+          });
+        } else {
+          finishLine();
+        }
+      });
+  };
+
+  activePause = () => {
+    paused = true;
+    clearSafety();
+    audio.pause();
+    setMediaState("paused");
+  };
+  activeResume = () => {
+    if (token.cancelled) return;
+    paused = false;
+    void audio.play().catch(() => {});
+    const remain = Number.isFinite(audio.duration)
+      ? audio.duration - audio.currentTime
+      : 3;
+    clearSafety();
+    safety = window.setTimeout(() => {
+      if (!token.cancelled) finishLine();
+    }, Math.max(500, (remain / clampRate) * 1000 + 900));
+    setMediaState("playing");
+  };
+
+  setupMediaSession(opts.title, {
+    play: () => activeResume?.(),
+    pause: () => activePause?.(),
+    next: () => {
+      const n = nextText(i + 1);
+      if (n !== -1) {
+        clearSafety();
+        revoke();
+        playAt(n);
+      }
+    },
+    prev: () => {
+      const p = prevText(i - 1);
+      if (p !== -1) {
+        clearSafety();
+        revoke();
+        playAt(p);
+      }
+    },
+  });
+
+  playAt(i);
 }
 
 // ---- cihaz sesi (Web Speech) ----

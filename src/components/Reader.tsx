@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lineChars, type Doc } from "../lib/doc";
-import { cancel as ttsCancel, primeAudio, speakDevice, speakNatural, ttsAvailable } from "../lib/tts";
+import { cancel as ttsCancel, primeAudio, speakDoc, ttsAvailable } from "../lib/tts";
 import { AMBIENCES, ambience, type AmbienceId } from "../lib/ambience";
 import { THEMES } from "../lib/themes";
 import { loadNotes, loadSettings, saveNotes, saveSettings, updateProgress, type Align, type Notes } from "../lib/storage";
@@ -301,53 +301,31 @@ export default function Reader({ doc, initialLine, theme, onThemeChange, onExit 
     return () => clearTimeout(timer);
   }, [playing, tts, active, speedIdx, lines, goTo]);
 
-  // Sesli okuma: aktif satırı seslendir, bitince sonraki satıra kay.
-  // Görsel/tablo adımlarında kısa bir duraklamayla devam eder.
+  // Sesli okuma: kuyruk motoru satırları arka arkaya çalar (React'ten
+  // bağımsız → başka uygulamaya geçince / kilit ekranında arka planda devam
+  // eder). Görsel yalnızca onLine ile takip eder. Efekt aktif satıra bağlı
+  // DEĞİL; yoksa her satırda yeniden başlardı.
   useEffect(() => {
     if (!tts) {
       ttsCancel();
       setTtsWord(null);
       return;
     }
-    const line = lines[active];
-    if (line.kind !== "text") {
-      setTtsWord(null);
-      const timer = setTimeout(() => {
-        if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
-        else setTts(false);
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-    const lineIndex = active;
-    let cancelledLocal = false;
-    const advance = () => {
-      if (cancelledLocal) return;
-      if (activeRef.current < lines.length - 1) goTo(activeRef.current + 1);
-      else setTts(false);
-    };
-    // Karaoke vurgusu yalnızca cihaz sesinde (kelime sınırı olayları var).
-    const onWord = (charIndex: number) => {
-      const rest = line.text.slice(charIndex);
-      const space = rest.search(/\s/);
-      const end = space === -1 ? line.text.length : charIndex + space;
-      if (end > charIndex) setTtsWord({ line: lineIndex, start: charIndex, end });
-    };
-    // Sonraki metin satırını önden indir → satırlar arası boşluk olmasın.
-    const nextLine = lines
-      .slice(active + 1)
-      .find((l) => l.kind === "text") as { text: string } | undefined;
-    // Önce doğal (sunucu) sesi dene; erişilemezse cihaz sesine düş.
-    speakNatural(line.text, SPEEDS[speedIdx], advance, nextLine?.text).catch(() => {
-      if (cancelledLocal) return;
-      if (ttsAvailable()) speakDevice(line.text, SPEEDS[speedIdx], advance, onWord);
-      else advance();
+    const texts = lines.map((l) => (l.kind === "text" ? l.text : null));
+    speakDoc(texts, activeRef.current, SPEEDS[speedIdx], {
+      title: doc.title,
+      onLine: (idx) => {
+        setTtsWord(null);
+        goTo(idx);
+      },
+      onWord: (line, start, end) => setTtsWord({ line, start, end }),
+      onEnd: () => setTts(false),
     });
     return () => {
-      cancelledLocal = true;
       ttsCancel();
       setTtsWord(null);
     };
-  }, [tts, active, speedIdx, lines, goTo]);
+  }, [tts, speedIdx, lines, doc.title, goTo]);
 
   useEffect(() => {
     const onFsChange = () => setFullscreen(Boolean(document.fullscreenElement));

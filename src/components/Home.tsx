@@ -40,34 +40,49 @@ export default function Home({ onOpen, onResume }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Dosyaları açar: fotoğraflar cihazda OCR ile metne çevrilir (birden çok
-  // fotoğraf tek belge olur), diğer dosyalar mevcut çıkarıcıdan geçer.
-  const openFiles = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
+  // Bekleyen (sahnelenmiş) görseller: Gemini gibi küçük önizleme kartlarında
+  // birikir, kullanıcı ekleyip çıkarabilir, sonra hepsi birden okunur.
+  const [pending, setPending] = useState<
+    { id: string; file: File; url: string }[]
+  >([]);
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  useEffect(
+    () => () => pendingRef.current.forEach((p) => URL.revokeObjectURL(p.url)),
+    [],
+  );
+
+  const addImages = useCallback((files: File[]) => {
+    const imgs = files.filter((f) => f.type.startsWith("image/"));
+    if (imgs.length === 0) return;
+    setError(null);
+    setPending((prev) => [
+      ...prev,
+      ...imgs.map((file) => ({
+        id:
+          typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : String(Math.random()),
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    ]);
+  }, []);
+
+  const removePending = useCallback((id: string) => {
+    setPending((prev) => {
+      const found = prev.find((p) => p.id === id);
+      if (found) URL.revokeObjectURL(found.url);
+      return prev.filter((p) => p.id !== id);
+    });
+  }, []);
+
+  // Belge (PDF/DOCX/TXT) — anında işlenir.
+  const openDocument = useCallback(
+    async (file: File) => {
       setBusy(true);
       setError(null);
       try {
-        const images = files.filter((f) => f.type.startsWith("image/"));
-        if (images.length > 0) {
-          const text = await ocrImages(images, setBusyMsg);
-          if (!text.trim()) {
-            throw new Error(
-              "Fotoğrafta okunabilir metin bulunamadı. Daha net, iyi aydınlatılmış bir kare deneyin.",
-            );
-          }
-          const single = images[0].name.replace(/\.[^.]+$/, "").trim();
-          const title =
-            images.length > 1
-              ? `Taranan metin (${images.length} sayfa)`
-              : // panodan gelen görsellerin adı çoğu zaman generic olur
-                !single || /^(image|screenshot|görüntü|photo|resim|ekran)/i.test(single)
-                ? "Ekran görüntüsü"
-                : single;
-          onOpen(title, [{ kind: "text", text }]);
-          return;
-        }
-        const file = files[0];
         const blocks = await extractFromFile(file);
         const hasContent = blocks.some(
           (b) => b.kind !== "text" || b.text.trim(),
@@ -82,10 +97,54 @@ export default function Home({ onOpen, onResume }: Props) {
         setError(e instanceof Error ? e.message : "Dosya okunamadı.");
       } finally {
         setBusy(false);
-        setBusyMsg(null);
       }
     },
     [onOpen],
+  );
+
+  // Bekleyen görselleri cihazda OCR'la ve oku.
+  const readPending = useCallback(async () => {
+    const items = pendingRef.current;
+    if (items.length === 0 || busy) return;
+    const images = items.map((p) => p.file);
+    setBusy(true);
+    setError(null);
+    try {
+      const text = await ocrImages(images, setBusyMsg);
+      if (!text.trim()) {
+        throw new Error(
+          "Görsellerde okunabilir metin bulunamadı. Daha net, iyi aydınlatılmış kareler deneyin.",
+        );
+      }
+      const single = images[0].name.replace(/\.[^.]+$/, "").trim();
+      const title =
+        images.length > 1
+          ? `Taranan metin (${images.length} sayfa)`
+          : !single ||
+              /^(image|screenshot|görüntü|photo|resim|ekran)/i.test(single)
+            ? "Ekran görüntüsü"
+            : single;
+      items.forEach((p) => URL.revokeObjectURL(p.url));
+      setPending([]);
+      onOpen(title, [{ kind: "text", text }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Görseller okunamadı.");
+    } finally {
+      setBusy(false);
+      setBusyMsg(null);
+    }
+  }, [busy, onOpen]);
+
+  // Dosya girişini yönlendir: görseller kartlara sahnelenir, belgeler
+  // anında açılır.
+  const intake = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const images = files.filter((f) => f.type.startsWith("image/"));
+      if (images.length > 0) addImages(images);
+      else void openDocument(files[0]);
+    },
+    [addImages, openDocument],
   );
 
   const openUrl = useCallback(async () => {
@@ -106,17 +165,15 @@ export default function Home({ onOpen, onResume }: Props) {
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const files = Array.from(e.dataTransfer.files ?? []);
-      if (files.length) void openFiles(files);
+      intake(Array.from(e.dataTransfer.files ?? []));
     },
-    [openFiles],
+    [intake],
   );
 
-  // Ctrl/Cmd+V ile görsel yapıştır → OCR. Sayfanın herhangi bir yerinde
-  // çalışır. Pano'da resim yoksa (düz metin yapıştırma) karışmaz.
+  // Ctrl/Cmd+V ile görsel yapıştır → önizleme kartlarına eklenir. Sayfanın
+  // herhangi bir yerinde çalışır. Pano'da resim yoksa (düz metin) karışmaz.
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      if (busy) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       const images: File[] = [];
@@ -128,12 +185,12 @@ export default function Home({ onOpen, onResume }: Props) {
       }
       if (images.length > 0) {
         e.preventDefault();
-        void openFiles(images);
+        addImages(images);
       }
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [busy, openFiles]);
+  }, [addImages]);
 
   return (
     <div
@@ -206,6 +263,46 @@ export default function Home({ onOpen, onResume }: Props) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {pending.length > 0 && (
+          <div className="staging">
+            <div className="staging__thumbs">
+              {pending.map((p) => (
+                <div key={p.id} className="thumb">
+                  <img src={p.url} alt="" />
+                  <button
+                    className="thumb__remove"
+                    title="Kaldır"
+                    onClick={() => removePending(p.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="thumb thumb--add"
+                title="Görsel ekle"
+                disabled={busy}
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                ＋
+              </button>
+            </div>
+            <button
+              className="btn btn--primary staging__read"
+              disabled={busy}
+              onClick={() => void readPending()}
+            >
+              {busy
+                ? (busyMsg ?? "Okunuyor…")
+                : `📖 Oku · ${pending.length} görsel`}
+            </button>
+            <p className="panel__hint">
+              Daha fazla ekran görüntüsü yapıştırabilir ya da ＋ ile
+              ekleyebilirsin; hepsi tek belge olarak okunur.
+            </p>
           </div>
         )}
 
@@ -287,7 +384,7 @@ export default function Home({ onOpen, onResume }: Props) {
           hidden
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
-            if (files.length) void openFiles(files);
+            intake(files);
             e.target.value = "";
           }}
         />
@@ -300,7 +397,7 @@ export default function Home({ onOpen, onResume }: Props) {
           hidden
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
-            if (files.length) void openFiles(files);
+            intake(files);
             e.target.value = "";
           }}
         />

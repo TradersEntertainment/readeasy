@@ -94,6 +94,91 @@ function readPingAllowed(ip) {
   return true;
 }
 
+// ---- TTS önbelleği + sağlayıcı ----
+// Seslendirmeler diske önbelleklenir: aynı metin (aynı sesle) ikinci kez
+// istenirse API'ye gitmez, volume'daki mp3'ten servis edilir → sadece disk.
+const ttsCacheDir = path.join(dataDir, "ttscache");
+mkdirSync(ttsCacheDir, { recursive: true });
+
+// Ücretli sağlayıcı ENV ile tanımlanır (anahtar ASLA kodda değil):
+//   TTS_API_URL      örn. https://api-tts.knowlez.com/v1/tts/synthesise
+//   TTS_API_KEY      gizli anahtar
+//   TTS_HEADER       anahtar başlığı adı (varsayılan: X-API-Key)
+//   TTS_CONTENT_TYPE gövde tipi (varsayılan: application/json)
+//   TTS_BODY         gövde şablonu; {{text}} yerine metin gelir. Docs'taki
+//                    örnek gövdeyi buraya koyun. Örn:
+//                    {"text":"{{text}}","voice":"tr-TR-Emel","format":"mp3"}
+//   TTS_VOICE        önbellek anahtarına katılan ses kimliği (opsiyonel)
+const TTS = {
+  url: process.env.TTS_API_URL || "",
+  key: process.env.TTS_API_KEY || "",
+  header: process.env.TTS_HEADER || "X-API-Key",
+  contentType: process.env.TTS_CONTENT_TYPE || "application/json",
+  body: process.env.TTS_BODY || '{"text":"{{text}}"}',
+  voice: process.env.TTS_VOICE || "",
+};
+const ttsProviderTag = TTS.url ? "paid:" + TTS.voice : "google";
+
+function ttsCacheKey(lang, text) {
+  return crypto
+    .createHash("sha1")
+    .update(ttsProviderTag + "|" + lang + "|" + text)
+    .digest("hex");
+}
+
+// Ücretli sağlayıcıyı çağırır; yanıt ister ham ses, ister JSON (base64/url)
+// olsun ele alır. Buffer döndürür ya da hata fırlatır.
+async function synthPaid(text) {
+  const body = TTS.body.replace("{{text}}", () => jsonEscape(text));
+  const res = await fetch(TTS.url, {
+    method: "POST",
+    headers: { [TTS.header]: TTS.key, "content-type": TTS.contentType },
+    body,
+  });
+  if (!res.ok) throw new Error("paid tts " + res.status);
+  const type = res.headers.get("content-type") || "";
+  if (type.startsWith("audio/")) {
+    return Buffer.from(await res.arrayBuffer());
+  }
+  if (type.includes("json")) {
+    const obj = await res.json();
+    const b64 =
+      obj.audioContent || obj.audio || obj.data || obj.audio_base64 || obj.base64;
+    if (typeof b64 === "string" && b64.length > 100) {
+      return Buffer.from(b64.replace(/^data:[^,]+,/, ""), "base64");
+    }
+    const url = obj.url || obj.audioUrl || obj.audio_url;
+    if (typeof url === "string") {
+      const a = await fetch(url);
+      if (a.ok) return Buffer.from(await a.arrayBuffer());
+    }
+    throw new Error("paid tts: ses alanı bulunamadı");
+  }
+  // tip belirsizse ham baytları dene
+  return Buffer.from(await res.arrayBuffer());
+}
+
+function jsonEscape(s) {
+  return JSON.stringify(s).slice(1, -1);
+}
+
+// Google Translate TTS (anahtarsız yedek).
+async function synthGoogle(text, lang) {
+  const target =
+    "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob" +
+    `&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
+  const res = await fetch(target, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      referer: "https://translate.google.com/",
+    },
+  });
+  if (!res.ok) throw new Error("google tts " + res.status);
+  return Buffer.from(await res.arrayBuffer());
+}
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -202,36 +287,55 @@ async function handleApi(req, res, url) {
 
 const TTS_LANG = /^[a-z]{2}(-[A-Z]{2})?$/;
 
+function sendAudio(res, buf, cached) {
+  res.writeHead(200, {
+    "content-type": "audio/mpeg",
+    "access-control-allow-origin": "*",
+    "cache-control": "public, max-age=604800",
+    "x-tts-cache": cached ? "hit" : "miss",
+  });
+  res.end(buf);
+}
+
 async function handleTts(res, url) {
-  const text = (url.searchParams.get("text") ?? "").slice(0, 200);
+  const text = (url.searchParams.get("text") ?? "").slice(0, 300);
   const lang = url.searchParams.get("lang") ?? "tr";
   if (!text.trim() || !TTS_LANG.test(lang)) {
     return sendJson(res, 400, { error: "bad_request" });
   }
-  const target =
-    "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob" +
-    `&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
+
+  // 1) Önbellek: aynı metin daha önce seslendirildiyse diskten servis et.
+  const cacheFile = path.join(ttsCacheDir, ttsCacheKey(lang, text) + ".mp3");
   try {
-    const upstream = await fetch(target, {
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-          "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        referer: "https://translate.google.com/",
-      },
-    });
-    if (!upstream.ok) return sendJson(res, 502, { error: "upstream" });
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.writeHead(200, {
-      "content-type": "audio/mpeg",
-      "access-control-allow-origin": "*",
-      // aynı satır tekrar okunursa tarayıcı önbelleğinden gelsin
-      "cache-control": "public, max-age=86400",
-    });
-    res.end(buf);
+    const cached = await fs.readFile(cacheFile);
+    return sendAudio(res, cached, true);
   } catch {
-    sendJson(res, 502, { error: "tts_failed" });
+    // önbellekte yok → üret
   }
+
+  // 2) Üret: önce ücretli sağlayıcı (tanımlıysa), olmazsa Google yedeği.
+  let buf = null;
+  if (TTS.url && TTS.key) {
+    try {
+      buf = await synthPaid(text);
+    } catch (e) {
+      console.warn("Ücretli TTS başarısız, Google'a düşülüyor:", e.message);
+    }
+  }
+  if (!buf) {
+    try {
+      buf = await synthGoogle(text, lang);
+    } catch {
+      return sendJson(res, 502, { error: "tts_failed" });
+    }
+  }
+  if (!buf || buf.length < 200) {
+    return sendJson(res, 502, { error: "tts_empty" });
+  }
+
+  // 3) Önbelleğe yaz (sonraki isteklerde API harcaması olmasın) ve servis et.
+  fs.writeFile(cacheFile, buf).catch(() => {});
+  sendAudio(res, buf, false);
 }
 
 // Kayıt hem yeni (JSON) hem eski (düz payload metni) biçimde okunabilir.

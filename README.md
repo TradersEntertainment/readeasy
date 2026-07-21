@@ -136,6 +136,31 @@ Kısa linkler aktifken paylaşımlar **görselleri ve tabloları da taşır**
 taşınır ve kullanıcı bilgilendirilir. Linkten gelen içerik alıcı tarafta
 doğrulanır (görsel kaynak şeması kısıtlanır, tablo HTML'i yeniden temizlenir).
 
+## Sesli Okuma Sağlayıcısı (isteğe bağlı, önbellekli)
+
+Varsayılan doğal ses, sunucudaki `/api/tts` üzerinden Google Translate TTS'i
+anahtarsız kullanır. Daha kaliteli bir ücretli TTS bağlamak için Railway
+ortam değişkenlerini ekleyin (anahtar **asla kodda değil**, yalnızca burada):
+
+```
+TTS_API_URL=https://.../v1/tts/synthesise
+TTS_API_KEY=<gizli-anahtar>
+TTS_HEADER=X-API-Key                 # anahtar başlığı adı (varsayılan)
+TTS_CONTENT_TYPE=application/json    # gövde tipi (varsayılan)
+TTS_BODY={"text":"{{text}}","voice":"..."}   # docs'taki gövde; {{text}} = metin
+TTS_VOICE=tr-TR-...                  # önbellek anahtarına katılan ses kimliği
+```
+
+`TTS_BODY`, sağlayıcının dokümanındaki istek gövdesidir; `{{text}}` yerine
+okunacak metin (JSON-escape edilerek) konur. Yanıt ham ses ya da
+JSON (base64/url) olabilir; ikisi de otomatik ele alınır. Ücretli çağrı
+başarısız olursa Google yedeğine düşülür.
+
+**Önbellek:** her seslendirme `/data/ttscache/<hash>.mp3` olarak saklanır.
+Aynı metin (aynı sesle) tekrar istendiğinde — ör. paylaşılan bir belgeyi
+ikinci kişi açtığında — API'ye gidilmez, diskten servis edilir. Böylece
+tekrar eden okumalarda **API değil yalnızca disk** harcanır.
+
 ## Gelir Modeli (Freemium)
 
 - Günde **20 dk ücretsiz** okuma (`src/lib/premium.ts` → `FREE_SECONDS_PER_DAY`).

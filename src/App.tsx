@@ -20,6 +20,7 @@ import {
   type SharedDoc,
 } from "./lib/share";
 import { fetchShortLink } from "./lib/shortlink";
+import { pingRead } from "./lib/social";
 
 // Ödeme sağlayıcısının başarı yönlendirmesi (ör. Stripe success_url →
 // https://site/?premium=1). GEÇİCİ: gerçek ödeme entegrasyonunda bu hak
@@ -67,6 +68,7 @@ export default function App() {
     if (lines.length === 0) return;
     const newDoc: Doc = { id: newDocId(), title, lines };
     saveDocToLibrary(newDoc);
+    pingRead(newDoc.id);
     setInitialLine(0);
     setDoc(newDoc);
   }, []);
@@ -115,6 +117,7 @@ export default function App() {
     if (!stored) return;
     const entry = listLibrary().find((e) => e.id === id);
     setInitialLine(Math.min(entry?.pos ?? 0, stored.lines.length - 1));
+    pingRead(stored.id);
     setDoc(stored);
   }, []);
 

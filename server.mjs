@@ -16,7 +16,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,6 +56,42 @@ function newId() {
   let id = "";
   for (const b of bytes) id += ALPHABET[b % ALPHABET.length];
   return id;
+}
+
+// ---- Okuma sayacı (sosyal kanıt) ----
+// GERÇEK bir sayaçtır: her gerçek okuma açılışında artar. STATS_SEED ile bir
+// başlangıç ivmesi verilir (varsayılan 100) — "100+" günden görünür, sonra
+// gerçek kullanımla büyür. Uydurma/kendiliğinden artan değildir.
+const STATS_SEED = Math.max(0, Number(process.env.STATS_SEED ?? 100) || 0);
+const statsFile = path.join(dataDir, "stats.json");
+let reads = STATS_SEED;
+try {
+  const n = JSON.parse(readFileSync(statsFile, "utf8"))?.reads;
+  if (Number.isFinite(n)) reads = Math.max(STATS_SEED, n);
+} catch {
+  // dosya yok → seed ile başla
+}
+
+let statsDirty = false;
+function bumpReads() {
+  reads++;
+  statsDirty = true;
+}
+// Diske yazımı topla (her N saniyede bir) — disk yormasın.
+setInterval(() => {
+  if (!statsDirty) return;
+  statsDirty = false;
+  fs.writeFile(statsFile, JSON.stringify({ reads }), "utf8").catch(() => {});
+}, 10_000).unref();
+
+// Okuma ping'i için IP başına kısa aralık (şişirmeyi zorlaştırır)
+const readPing = new Map();
+function readPingAllowed(ip) {
+  const now = Date.now();
+  const last = readPing.get(ip) ?? 0;
+  if (now - last < 4000) return false;
+  readPing.set(ip, now);
+  return true;
 }
 
 const MIME = {
@@ -146,6 +182,19 @@ async function handleApi(req, res, url) {
   // CORS ve UA kısıtları nedeniyle doğrudan çağıramaz; sunucu araya girer.
   if (url.pathname === "/api/tts" && req.method === "GET") {
     return handleTts(res, url);
+  }
+
+  // Okuma sayacı (sosyal kanıt).
+  if (url.pathname === "/api/stats" && req.method === "GET") {
+    return sendJson(res, 200, { reads });
+  }
+  if (url.pathname === "/api/read" && req.method === "POST") {
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
+      req.socket.remoteAddress ??
+      "?";
+    if (readPingAllowed(ip)) bumpReads();
+    return sendJson(res, 200, { reads });
   }
 
   return sendJson(res, 404, { error: "not_found" });

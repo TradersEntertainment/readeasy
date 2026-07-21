@@ -4,6 +4,7 @@ import { ocrImages } from "../lib/ocr";
 import { listLibrary, removeFromLibrary } from "../lib/storage";
 import { fetchFromUrl } from "../lib/url";
 import { loadStats } from "../lib/stats";
+import { fetchReads, formatReads } from "../lib/social";
 
 interface Props {
   onOpen: (title: string, blocks: Extracted[]) => void;
@@ -33,6 +34,10 @@ export default function Home({ onOpen, onResume }: Props) {
   const [url, setUrl] = useState("");
   const stats = useMemo(loadStats, []);
   const [library, setLibrary] = useState(() => listLibrary());
+  const [reads, setReads] = useState<number | null>(null);
+  useEffect(() => {
+    void fetchReads().then(setReads);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -210,6 +215,13 @@ export default function Home({ onOpen, onResume }: Props) {
           Uzun metinleri, şarkı sözü okur gibi oku. Yapıştır ya da bir PDF /
           Word dosyası bırak — metin tam ekran, akıcı bir kayışa dönüşsün.
         </p>
+
+        {reads !== null && reads > 0 && (
+          <div className="home__social" title="Bugüne kadarki toplam okuma">
+            <span className="home__socialDot" />
+            <b>{formatReads(reads)}+</b> okuma yapıldı
+          </div>
+        )}
 
         {stats.totalSeconds >= 60 && (
           <p className="home__stats">
